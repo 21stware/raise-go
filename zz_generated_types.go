@@ -56,12 +56,16 @@ type Token struct {
 	// 客户中心 id。仅客户授权
 	Customer    string `json:"customer,omitempty"`
 	Environment string `json:"environment"`
-	// 秒。租户令牌 300，客户令牌 900
+	// 秒。租户令牌 300，客户令牌 900，员工令牌 600
 	ExpiresIn int `json:"expires_in"`
+	// 仅员工授权。下一次续期用它，30 天不用就过期
+	RefreshToken string `json:"refresh_token,omitempty"`
 	// 空格分隔。客户令牌不含 customer:assert
 	Scope     string `json:"scope"`
 	Tenant    string `json:"tenant"`
 	TokenType string `json:"token_type"`
+	// 仅员工授权。这位员工的用户 id
+	User string `json:"user,omitempty"`
 }
 
 // TablesListRowsParams is the query string of ListRows.
@@ -116,6 +120,8 @@ const (
 	ErrorCodeAssertionStale        ErrorCode = "assertion_stale"
 	ErrorCodeConditionFailed       ErrorCode = "condition_failed"
 	ErrorCodeConflict              ErrorCode = "conflict"
+	ErrorCodeConsentRequired       ErrorCode = "consent_required"
+	ErrorCodeConsentRevoked        ErrorCode = "consent_revoked"
 	ErrorCodeCredentialEnded       ErrorCode = "credential_ended"
 	ErrorCodeCustomerTokenRequired ErrorCode = "customer_token_required"
 	ErrorCodeForbidden             ErrorCode = "forbidden"
@@ -124,6 +130,7 @@ const (
 	ErrorCodeInternal              ErrorCode = "internal"
 	ErrorCodeInvalidClient         ErrorCode = "invalid_client"
 	ErrorCodeInvalidCredential     ErrorCode = "invalid_credential"
+	ErrorCodeInvalidGrant          ErrorCode = "invalid_grant"
 	ErrorCodeInvalidPhone          ErrorCode = "invalid_phone"
 	ErrorCodeInvalidRequest        ErrorCode = "invalid_request"
 	ErrorCodeInvalidToken          ErrorCode = "invalid_token"
@@ -133,6 +140,7 @@ const (
 	ErrorCodeNotImplemented        ErrorCode = "not_implemented"
 	ErrorCodeNotInstalled          ErrorCode = "not_installed"
 	ErrorCodePayloadTooLarge       ErrorCode = "payload_too_large"
+	ErrorCodePersonGone            ErrorCode = "person_gone"
 	ErrorCodeRateLimited           ErrorCode = "rate_limited"
 	ErrorCodeScopeRequired         ErrorCode = "scope_required"
 	ErrorCodeTenantRequired        ErrorCode = "tenant_required"
@@ -424,12 +432,20 @@ type TokenRequest struct {
 	ClientId string `json:"client_id,omitempty"`
 	// 未用 HTTP Basic 时必填
 	ClientSecret string `json:"client_secret,omitempty"`
+	// authorization_code 必填。身份服务回调带回的授权码
+	Code string `json:"code,omitempty"`
+	// authorization_code 必填。PKCE 原文（S256）
+	CodeVerifier string `json:"code_verifier,omitempty"`
 	// 客户授权可选。在 ambiguous_customer 之后指定是哪一位
 	CustomerId string `json:"customer_id,omitempty"`
-	// client_credentials 换租户令牌；urn:raise:grant-type:customer 换客户令牌
+	// client_credentials 换租户令牌；urn:raise:grant-type:customer 换客户令牌；authorization_code / refresh_token 换员工令牌
 	GrantType string `json:"grant_type"`
 	// 客户授权必填。数字，可带前导 +。空格和短横忽略。大陆手机也可写成 86… / +86…
 	Phone string `json:"phone,omitempty"`
+	// authorization_code 必填。与授权请求里的一致，且在开发者平台登记过
+	RedirectUri string `json:"redirect_uri,omitempty"`
+	// refresh_token 必填。kwr_ 开头，只能用一次
+	RefreshToken string `json:"refresh_token,omitempty"`
 	// 空格分隔的范围子集。省略则给已授予的全部
 	Scope string `json:"scope,omitempty"`
 	// 应用级凭证必填。租户绑定凭证必须省略或等于它自己的组织
@@ -445,8 +461,13 @@ type UpdateCustomerBody struct {
 type Whoami struct {
 	App string `json:"app"`
 	// 换出这把令牌的 client_id
-	Credential string `json:"credential"`
+	Credential  string `json:"credential"`
+	Environment string `json:"environment,omitempty"`
+	// 员工令牌：这个人此刻在组织里的角色（每次调用现读）；租户令牌为空
+	Roles []string `json:"roles,omitempty"`
 	// 令牌范围与此刻授予的交集
 	Scopes []string `json:"scopes"`
 	Tenant string   `json:"tenant"`
+	// 员工令牌的员工；租户令牌为空
+	User string `json:"user,omitempty"`
 }

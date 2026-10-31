@@ -12,10 +12,58 @@ type AppAccessCheckParams struct {
 	Type string
 }
 
+// AppApprovalsGetParams is the query string of Get.
+type AppApprovalsGetParams struct {
+	// 对象的引用
+	Subject string
+}
+
+// AppApprovalsListWaitingParams is the query string of ListWaiting.
+type AppApprovalsListWaitingParams struct {
+	// 审批种类，例如 hr.leave
+	Kind string
+}
+
+// AppApprovalsParticipatesParams is the query string of Participates.
+type AppApprovalsParticipatesParams struct {
+	// 对象的引用
+	Subject string
+	// 用户 id
+	User string
+}
+
+// AppBlobsListParams is the query string of List.
+type AppBlobsListParams struct {
+	// 前缀，以 apps/{本应用 id}/ 开头。省略时是整个文件夹
+	Prefix string
+}
+
 // AppCustomersResolveParams is the query string of Resolve.
 type AppCustomersResolveParams struct {
 	// 传 1 时只预演，不写入
 	DryRun string
+}
+
+// AppDraftsGetParams is the query string of Get.
+type AppDraftsGetParams struct {
+	// 传 1 时先重跑检查
+	Revalidate string
+}
+
+// AppDraftsListParams is the query string of List.
+type AppDraftsListParams struct {
+	// 只要这次对话里起草的草稿
+	Session string
+	// 草稿状态：省略是 open 与 partial，all 是全部
+	Status string
+	// 只要作用于这个 k3:// 引用的草稿
+	Target string
+}
+
+// AppDraftsProvenanceParams is the query string of Provenance.
+type AppDraftsProvenanceParams struct {
+	// 记录的 k3:// 引用
+	Ref string
 }
 
 // AppEntitlementsListGrantsParams is the query string of ListGrants.
@@ -34,12 +82,62 @@ type AppLinksResolveParams struct {
 
 // AppLinksSearchParams is the query string of Search.
 type AppLinksSearchParams struct {
-	// 要搜索其记录的应用 id
+	// 要搜索其记录的应用 id；省略为全部已安装的应用
 	App string
 	// 条数，默认 20，最大 50
 	Limit *int
 	// 文字查询，省略为最近的
 	Q string
+}
+
+// AppOptionsGetParams is the query string of Get.
+type AppOptionsGetParams struct {
+	// 企业从没保存过这个列表时的默认选项。可以重复；SDK 的参数一次只带一个
+	Default string
+}
+
+// AppOutreachListTemplatesParams is the query string of ListTemplates.
+type AppOutreachListTemplatesParams struct {
+	// 传 1 时包含归档的模板
+	Archived string
+	// 渠道种类，例如 sms
+	Channel string
+}
+
+// AppResourcesGetParams is the query string of Get.
+type AppResourcesGetParams struct {
+	// 树类型：按这个人的智能体算级别（最多 comment）
+	Agent *bool
+	// 树类型、应用自己的令牌：查谁的级别（可省略）
+	User string
+}
+
+// AppResourcesMineParams is the query string of Mine.
+type AppResourcesMineParams struct {
+	// 上一页的 `next`
+	After string
+	// 应用自己的令牌必须带：查谁
+	User string
+}
+
+// AppResourcesVisibleParams is the query string of Visible.
+type AppResourcesVisibleParams struct {
+	// 树类型：按这个人的智能体算（最多 comment）
+	Agent *bool
+	// 上一页的 `next`
+	Cursor string
+	// 最低级别：`view`（默认）、`comment`、`edit`、`manage`
+	Level string
+	// 每页条数，默认 200，最多 1000
+	Limit *int
+	// 应用自己的令牌必须带：查谁
+	User string
+}
+
+// AppStoresListParams is the query string of List.
+type AppStoresListParams struct {
+	// 人员的 subject；省略为全部门店
+	Of string
 }
 
 // AppVisitorsListIdentifiedParams is the query string of ListIdentified.
@@ -70,6 +168,36 @@ type AppEntitlementGranted struct {
 	Granter string `json:"granter"`
 	// 发出之物的 k3:// 引用
 	Ref string `json:"ref"`
+}
+
+// 一个不带令牌就能用的地址，到 expiresAt 为止
+type AppBlobPresigned struct {
+	// 地址失效的时间
+	ExpiresAt time.Time `json:"expiresAt"`
+	// 用这个方法去请求它：PUT 或 GET
+	Method string `json:"method"`
+	// 直接对文件存储用的地址
+	Url string `json:"url"`
+}
+
+// 一个人在每个点名他的集合里的级别
+type AppAccessMine struct {
+	// 企业管理员：集合里不体现，应用按处处 manage 处理（再受状态限制）
+	Bypass bool `json:"bypass"`
+	// 下一页的 after
+	Next string `json:"next"`
+	// 集合 id 到级别（view、comment、edit、manage）
+	Sets map[string]string `json:"sets"`
+	// 还有下一页
+	Truncated bool `json:"truncated"`
+}
+
+// 一个字段可选的值
+type AppDraftCandidate struct {
+	// 给人看的名字
+	Label string `json:"label"`
+	// 值，类型随字段
+	Value map[string]any `json:"value"`
 }
 
 // 一个未支付订单对权益的占用
@@ -111,6 +239,113 @@ type AppEntitlementTemplate struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+// 一个根或节点的全部显式名单（整体替换）
+type AppAccessTreeEntries struct {
+	// 应用自己的令牌：替谁改，记在名单上；页面会话忽略
+	By      string               `json:"by,omitempty"`
+	Entries []AppAccessTreeEntry `json:"entries"`
+}
+
+// 一个消息模板
+type AppOutreachTemplate struct {
+	Active       bool   `json:"active"`
+	ApprovalNote string `json:"approvalNote,omitempty"`
+	// 审核状态，例如 unsubmitted、approved
+	ApprovalState string `json:"approvalState"`
+	// 正文，变量写成 {变量名}
+	Body    string `json:"body"`
+	Channel string `json:"channel"`
+	// 渠道方（短信商、公众号）的模板编号
+	ChannelTemplateId string                     `json:"channelTemplateId,omitempty"`
+	CreatedAt         time.Time                  `json:"createdAt,omitempty"`
+	CreatedBy         string                     `json:"createdBy,omitempty"`
+	Fields            []AppOutreachTemplateField `json:"fields,omitempty"`
+	Id                string                     `json:"id"`
+	Name              string                     `json:"name"`
+	ParamNames        []string                   `json:"paramNames,omitempty"`
+	Purpose           string                     `json:"purpose"`
+	UpdatedAt         time.Time                  `json:"updatedAt,omitempty"`
+	UpdatedBy         string                     `json:"updatedBy,omitempty"`
+	Url               string                     `json:"url,omitempty"`
+	// 用它发过的消息数
+	Used int `json:"used,omitempty"`
+	// 正文里用到的变量
+	Variables []string `json:"variables,omitempty"`
+	Version   int      `json:"version"`
+	Warnings  []string `json:"warnings,omitempty"`
+}
+
+// 一个站点的回答
+type AppSiteSummary struct {
+	// 下线时间
+	EndedAt time.Time `json:"endedAt,omitempty"`
+	// 在线的版本号
+	LiveNumber int `json:"liveNumber,omitempty"`
+	// 站点名称；站点不存在时为空
+	Name string `json:"name"`
+	// 这段日期里的访问次数
+	Requests int `json:"requests"`
+	// 站点 id
+	Site string `json:"site"`
+	// 访客现在看到什么：live 在线（liveNumber 是在线的版本），unpublished 从没发布过，ended 已下线（显示活动已结束，自 endedAt 起），disabled 地址打不开。站点不存在时没有
+	State string `json:"state,omitempty"`
+}
+
+// 一个触达渠道及其状态。密钥不会出现
+type AppOutreachChannel struct {
+	Account     string `json:"account,omitempty"`
+	AppId       string `json:"appId,omitempty"`
+	CallbackUrl string `json:"callbackUrl,omitempty"`
+	// 渠道的能力：needsTemplate、receipts、unsubReply、idempotent 等
+	Capabilities map[string]any `json:"capabilities"`
+	Configured   bool           `json:"configured"`
+	Enabled      bool           `json:"enabled"`
+	KeyId        string         `json:"keyId,omitempty"`
+	// 渠道种类，例如 sms
+	Kind string `json:"kind"`
+	// 上一次测试发送的结果
+	LastTest map[string]any `json:"lastTest,omitempty"`
+	Name     string         `json:"name"`
+	Note     string         `json:"note,omitempty"`
+	Provider string         `json:"provider,omitempty"`
+	// 已配置、已打开（公众号还要已绑定）
+	Ready  bool   `json:"ready"`
+	Region string `json:"region,omitempty"`
+	// 平台这个进程能经它发送
+	Registered bool                  `json:"registered"`
+	ReplyUrl   string                `json:"replyUrl,omitempty"`
+	Secret     AppOutreachSecretInfo `json:"secret"`
+	Signature  string                `json:"signature,omitempty"`
+	Status     string                `json:"status,omitempty"`
+	UpdatedAt  time.Time             `json:"updatedAt,omitempty"`
+	UpdatedBy  string                `json:"updatedBy,omitempty"`
+}
+
+// 一个资源的访问名单，按调用者能看到的
+type AppResourceAccessView struct {
+	CanShare bool `json:"canShare"`
+	// 通用访问：空字符串、view、comment 或 edit。空字符串是只有名单上的人
+	General string             `json:"general"`
+	Grants  []AppResourceGrant `json:"grants"`
+	Id      string             `json:"id"`
+	IsOwner bool               `json:"isOwner"`
+	// 这个类型提供的级别，由低到高
+	Levels []string `json:"levels"`
+	// 能管理的人的显示名（所有者在前，最多 5 个），让只读的人知道该找谁
+	Managers []string `json:"managers"`
+	// 调用者的级别
+	Me string `json:"me"`
+	// 所有者的 user id
+	Owner string `json:"owner"`
+	// 所有者的显示名；不知道时为空
+	OwnerName string `json:"ownerName"`
+	// 等着处理的申请数（只有能处理的人看得到）
+	Pending int `json:"pending"`
+	// 类型声明的每个开关和它现在的值
+	Toggles map[string]bool `json:"toggles"`
+	Type    string          `json:"type"`
+}
+
 // 一个身份（手机号、邮箱、第三方 id…）
 type AppCustomerIdentity struct {
 	// 身份的种类
@@ -123,9 +358,64 @@ type AppCustomerIdentity struct {
 	Verified bool `json:"verified,omitempty"`
 }
 
+// 一个选项列表
+type AppOptionsList struct {
+	// 选项
+	Items []string `json:"items"`
+}
+
+// 一份实时文档的头信息
+type AppRealtimeDocHead struct {
+	// 编码：yjs-v1、ymap-v1、board-v1 或 Office 编码
+	Codec string `json:"codec"`
+	// 纪元；每次重新开始加 1
+	Epoch int `json:"epoch"`
+	// 日志头的序号
+	HeadSeq int    `json:"headSeq"`
+	Id      string `json:"id"`
+	// 清单声明的种类
+	Kind string `json:"kind"`
+	// 最近一次投影所在的序号
+	ProjSeq  int                    `json:"projSeq"`
+	Resource AppRealtimeDocResource `json:"resource"`
+	// 文档结构的版本
+	SchemaVer int       `json:"schemaVer"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// 一份草稿，按调用的应用能看到的样子：本应用的项是完整的，其他应用的项只有数量
+type AppDraftView struct {
+	CreatedAt time.Time      `json:"createdAt"`
+	Id        string         `json:"id"`
+	Items     []AppDraftItem `json:"items"`
+	// 并入了已有待办项的请求项，以及它们现在在哪
+	Merged []AppDraftItemRef `json:"merged,omitempty"`
+	// 返回的项用到的操作的声明，键是“应用.操作”：标题、输入模式、风险和本人要做的事
+	Ops map[string]map[string]any `json:"ops,omitempty"`
+	// 来源。普通草稿为空
+	Origin string `json:"origin,omitempty"`
+	// 其他应用的项的数量
+	Others []AppDraftOtherApp `json:"others,omitempty"`
+	// 草稿属于的人；只有他们能应用
+	Owner     string    `json:"owner"`
+	SessionId string    `json:"sessionId,omitempty"`
+	Status    string    `json:"status"`
+	Summary   string    `json:"summary,omitempty"`
+	Tenant    string    `json:"tenant,omitempty"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
 // 一位客户的权益
 type AppEntitlementGrantList struct {
 	Data []AppEntitlementGrant `json:"data"`
+}
+
+// 一张图片
+type AppModelImage struct {
+	// 图片字节的 base64
+	Data string `json:"data"`
+	// 图片类型
+	Mime string `json:"mime"`
 }
 
 // 一张支付订单
@@ -180,6 +470,86 @@ type AppPaymentOrder struct {
 	Tenant string `json:"tenant"`
 }
 
+// 一张收款单，加上客户的付款页
+type AppPayOrder struct {
+	AmountCents    int       `json:"amountCents"`
+	AppId          string    `json:"appId,omitempty"`
+	Channel        string    `json:"channel"`
+	ChannelTradeNo string    `json:"channelTradeNo,omitempty"`
+	ClosedAt       time.Time `json:"closedAt,omitempty"`
+	// 扫码支付的链接
+	CodeUrl   string    `json:"codeUrl,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+	CreatedBy string    `json:"createdBy,omitempty"`
+	Currency  string    `json:"currency,omitempty"`
+	ExpiresAt time.Time `json:"expiresAt"`
+	Id        string    `json:"id"`
+	LastError string    `json:"lastError,omitempty"`
+	// 客户的付款页
+	Link string `json:"link,omitempty"`
+	// 给渠道的商户单号
+	OutTradeNo string    `json:"outTradeNo,omitempty"`
+	PaidAt     time.Time `json:"paidAt,omitempty"`
+	// JSAPI 交易交给微信的已签名参数（JSON 文本）
+	PayParams string `json:"payParams,omitempty"`
+	PayToken  string `json:"payToken,omitempty"`
+	// 渠道的付款链接
+	PayUrl  string `json:"payUrl,omitempty"`
+	Product string `json:"product,omitempty"`
+	// 已退多少
+	RefundedCents  int       `json:"refundedCents"`
+	SettleAttempts int       `json:"settleAttempts,omitempty"`
+	SettledAt      time.Time `json:"settledAt,omitempty"`
+	// 来源应用，即本应用
+	SourceApp string `json:"sourceApp,omitempty"`
+	SourceRef string `json:"sourceRef,omitempty"`
+	// 状态，例如 pending、paid、closed、refunded
+	Status  string `json:"status"`
+	Subject string `json:"subject,omitempty"`
+	Tenant  string `json:"tenant,omitempty"`
+}
+
+// 一条待办，以及能对它做什么
+type AppApprovalTask struct {
+	// 能做的动作
+	Actions []string `json:"actions"`
+	Id      string   `json:"id"`
+	Name    string   `json:"name"`
+	// 必须写意见的动作
+	NeedComment []string `json:"needComment,omitempty"`
+	Node        string   `json:"node"`
+	// 处理时要带回的版本
+	Version int `json:"version"`
+}
+
+// 一条访问申请
+type AppResourceRequest struct {
+	// 申请从哪个应用提出
+	App           string    `json:"app,omitempty"`
+	CreatedAt     time.Time `json:"createdAt"`
+	DecidedAt     time.Time `json:"decidedAt,omitempty"`
+	DecidedBy     string    `json:"decidedBy,omitempty"`
+	DecidedByName string    `json:"decidedByName,omitempty"`
+	ExpiresAt     time.Time `json:"expiresAt,omitempty"`
+	// 批准的级别
+	Granted string `json:"granted,omitempty"`
+	Id      string `json:"id"`
+	// 申请的级别
+	Level string `json:"level"`
+	Note  string `json:"note"`
+	// 应用里的哪个页面
+	Origin string `json:"origin,omitempty"`
+	// 拒绝的原因
+	Reason        string `json:"reason,omitempty"`
+	Requester     string `json:"requester"`
+	RequesterName string `json:"requesterName"`
+	Resource      string `json:"resource"`
+	// 被拒绝后 24 小时的冷却何时结束
+	RetryAfter time.Time `json:"retryAfter,omitempty"`
+	Status     string    `json:"status"`
+	Type       string    `json:"type"`
+}
+
 // 一次使用（核销单）
 type AppEntitlementRedemption struct {
 	// 核销者
@@ -210,6 +580,35 @@ type AppEntitlementRedemption struct {
 	VoidedAt time.Time `json:"voidedAt,omitempty"`
 	// 门店
 	Where string `json:"where,omitempty"`
+}
+
+// 一次推送：本应用对 ref 的投影；item 省略或为 null 是取消
+type AppCalendarPush struct {
+	Item *AppCalendarProjection `json:"item,omitempty"`
+	// 事实的 k3:// 引用
+	Ref string `json:"ref"`
+	// 这次推送的版本，正数。比已应用的旧就是 stale
+	Version int `json:"version"`
+}
+
+// 一次改动让哪些节点换了集合
+type AppAccessTreeChanged struct {
+	// 节点 id 到它现在的集合 id（重新鉴权它打开的文档，更新应用保存的集合 id）
+	Changed map[string]string `json:"changed"`
+	Id      string            `json:"id,omitempty"`
+	Type    string            `json:"type,omitempty"`
+}
+
+// 一次模型调用
+type AppModelRequest struct {
+	// 图片。只有 /models/read 收
+	Images []AppModelImage `json:"images,omitempty"`
+	// 这次用途的名字，用量报表按它分开
+	Scene string `json:"scene"`
+	// 系统提示
+	System string `json:"system,omitempty"`
+	// 用户的话。不能为空
+	User string `json:"user"`
 }
 
 // 一次被留住的使用
@@ -252,6 +651,34 @@ type AppEntitlementReservation struct {
 	Times int `json:"times"`
 	// 门店
 	Where string `json:"where,omitempty"`
+}
+
+// 一次预演或执行的结果
+type AppDraftExecuteResult struct {
+	// 已生效
+	Applied bool `json:"applied,omitempty"`
+	// 发现的问题
+	Issues []map[string]any `json:"issues,omitempty"`
+	// 检查结论：ready、warning、choose、invalid
+	Mark string `json:"mark,omitempty"`
+	// 受影响记录的 k3:// 引用
+	Ref string `json:"ref,omitempty"`
+	// 一句话说明这个操作做了什么
+	Summary string `json:"summary,omitempty"`
+}
+
+// 一种改动。只写一项：replace、append、title、data、board 之一
+type AppRealtimeEditBody struct {
+	// 追加到末尾的 ProseMirror 块
+	Append []map[string]any `json:"append,omitempty"`
+	// board-v1：整个看板
+	Board map[string]any `json:"board,omitempty"`
+	// ymap-v1：整个对象
+	Data map[string]any `json:"data,omitempty"`
+	// 整份 ProseMirror 文档
+	Replace map[string]any `json:"replace,omitempty"`
+	// 新标题
+	Title string `json:"title,omitempty"`
 }
 
 // 一笔成交
@@ -310,6 +737,23 @@ type AppLedgerPostRequest struct {
 }
 
 // 一笔退款
+type AppPayRefund struct {
+	AmountCents     int       `json:"amountCents"`
+	ChannelRefundId string    `json:"channelRefundId,omitempty"`
+	CreatedAt       time.Time `json:"createdAt"`
+	CreatedBy       string    `json:"createdBy,omitempty"`
+	Id              string    `json:"id"`
+	LastError       string    `json:"lastError,omitempty"`
+	OrderId         string    `json:"orderId"`
+	OutRefundNo     string    `json:"outRefundNo,omitempty"`
+	Reason          string    `json:"reason,omitempty"`
+	SettleAttempts  int       `json:"settleAttempts,omitempty"`
+	SettledAt       time.Time `json:"settledAt,omitempty"`
+	Status          string    `json:"status"`
+	Tenant          string    `json:"tenant,omitempty"`
+}
+
+// 一笔退款
 type AppPaymentRefund struct {
 	// 金额
 	AmountCents int `json:"amountCents"`
@@ -337,6 +781,28 @@ type AppPaymentRefund struct {
 	Status string `json:"status"`
 	// 租户
 	Tenant string `json:"tenant"`
+}
+
+// 一项提议的变更：本应用的一个操作
+type AppDraftItemInput struct {
+	// 操作所属的应用。省略时是本应用，写了就必须是本应用
+	App string `json:"app,omitempty"`
+	// 按字段给出的候选值，让本人挑
+	Candidates map[string][]AppDraftCandidate `json:"candidates,omitempty"`
+	// 本次请求里其他项的 key
+	DependsOn []string `json:"dependsOn,omitempty"`
+	// 起草者给这项的意图标签
+	Group string `json:"group,omitempty"`
+	// 这项在本次请求里的名字，供其他项依赖
+	Key string `json:"key,omitempty"`
+	// 操作名，本应用在清单里声明的 op
+	Op string `json:"op"`
+	// 提议的字段值，按操作的输入模式写
+	Proposed map[string]any `json:"proposed"`
+	// 为什么这样改
+	Reason string `json:"reason,omitempty"`
+	// 要改或删的记录的 k3:// 引用；新建时省略
+	Target string `json:"target,omitempty"`
 }
 
 // 一项权益
@@ -403,6 +869,46 @@ type AppEntitlementGrant struct {
 	TransferredFrom string `json:"transferredFrom,omitempty"`
 }
 
+// 为一个对象拿上传或下载地址
+type AppBlobPresignRequest struct {
+	// 对象的键
+	Key string `json:"key"`
+	// PUT 上传（还需要 app.blobs:write），GET 下载
+	Method string `json:"method"`
+	// 上传（PUT）必填：上传的确切字节数，最多 512 MiB。大小签进地址，存储只收这么多字节；签发前按企业剩余的存储额度检查，放不下是 413。下载不带
+	Size int `json:"size,omitempty"`
+	// 地址的有效秒数。省略（或 0）取最大值：上传（PUT）900、下载（GET）300
+	TtlSeconds int `json:"ttlSeconds,omitempty"`
+}
+
+// 为一个对象提交审批
+type AppApprovalSubmitRequest struct {
+	// 本应用在清单 approvals 里声明的审批种类
+	Kind string `json:"kind"`
+	// 对象的引用，在这个种类声明的前缀之下
+	Subject string `json:"subject"`
+}
+
+// 事件 access.changed 的输入
+type AppAccessChangedInput struct {
+	Data map[string]any `json:"data"`
+	// 事件 id，也是运行的键
+	Id     string `json:"id"`
+	Tenant string `json:"tenant"`
+	// access.changed
+	Type string `json:"type"`
+}
+
+// 事件 realtime.doc.projected 的输入
+type AppRealtimeProjectedInput struct {
+	Data map[string]any `json:"data"`
+	// 事件 id，也是运行的键
+	Id     string `json:"id"`
+	Tenant string `json:"tenant"`
+	// realtime.doc.projected
+	Type string `json:"type"`
+}
+
 // 代表租户的调用者（Go 结构没有 json 标签，字段名是大写形式）
 type AppDealCaller struct {
 	// 平台代理
@@ -419,6 +925,16 @@ type AppDealCaller struct {
 	Via string `json:"Via,omitempty"`
 }
 
+// 企业开放了什么
+type AppModelStatus struct {
+	// 有服务模型可用
+	Model bool `json:"model"`
+	// 服务模型的名字。平台不说时省略
+	ServiceModel string `json:"serviceModel,omitempty"`
+	// 能转写语音
+	Transcribe bool `json:"transcribe"`
+}
+
 // 作废核销单或取消预留的正文（必须是 JSON 对象）
 type AppEntitlementReasonRequest struct {
 	// 原因
@@ -431,11 +947,86 @@ type AppEntitlementGranters struct {
 	Names []string `json:"names"`
 }
 
+// 分享。字段名大小写不敏感
+type AppResourceShareRequest struct {
+	// 省略为不过期
+	ExpiresAt time.Time `json:"expiresAt,omitempty"`
+	// user、unit（部门）、role 或 everyone
+	Kind  string           `json:"kind"`
+	Level AppResourceLevel `json:"level"`
+	// 显示名，留在名单上
+	Name string `json:"name,omitempty"`
+	// 对象 id
+	Principal string `json:"principal"`
+}
+
+// 列表的声明，和要做的改动（整个列表，或追加一个）。items 与 add 至少给一个
+type AppOptionsRequest struct {
+	// 追加一个选项
+	Add string `json:"add,omitempty"`
+	// 企业从没保存过时的默认选项
+	Defaults []string `json:"defaults,omitempty"`
+	// 整个列表，替换原来的
+	Items []string `json:"items,omitempty"`
+	// 每个选项最多多少个字符
+	MaxLen int `json:"maxLen,omitempty"`
+	// 列表的名字。省略时用键
+	Title string `json:"title,omitempty"`
+}
+
+// 创建一份实时文档。初始内容按种类的编码给其中一项
+type AppRealtimeDocCreate struct {
+	// board-v1：看板（必填）
+	Board map[string]any `json:"board,omitempty"`
+	// ymap-v1：JSON 对象（必填）
+	Data map[string]any `json:"data,omitempty"`
+	// yjs-v1：ProseMirror 文档（省略是空文档）
+	Doc map[string]any `json:"doc,omitempty"`
+	// 文档 id，字母、数字、- 和 _；省略由平台取
+	Id string `json:"id,omitempty"`
+	// 本应用清单 realtime.docs[] 里声明的种类
+	Kind string `json:"kind"`
+	// 所属资源的 id（资源类型由种类声明）
+	Resource string `json:"resource"`
+	// Office 编码：base64 的初始状态（必填）
+	State string `json:"state,omitempty"`
+}
+
+// 删除一个前缀下的全部对象
+type AppBlobDeletePrefixRequest struct {
+	// 前缀，以 apps/{本应用 id}/ 开头；可以就是整个文件夹
+	Prefix string `json:"prefix"`
+}
+
 // 发放的结果
 type AppEntitlementGrantResult struct {
 	Grants []AppEntitlementGrant `json:"grants"`
 	// 同一个 key 已发放过，这是当时的权益
 	Replay bool `json:"replay"`
+}
+
+// 发起一笔收款
+type AppPayCreateRequest struct {
+	// 金额，整数分
+	AmountCents int `json:"amountCents"`
+	// 收款渠道，例如 alipay、wechat
+	Channel string `json:"channel"`
+	// H5 交易付款人的 IP
+	ClientIp string `json:"clientIp,omitempty"`
+	// 幂等键；省略时用请求头 Idempotency-Key
+	Key string `json:"key,omitempty"`
+	// JSAPI 交易的付款人 openid
+	OpenId string `json:"openId,omitempty"`
+	// 渠道里的产品。省略是渠道的第一个
+	Product string `json:"product,omitempty"`
+	// 付完后浏览器回到哪里（支付宝页面支付、微信 H5）
+	ReturnUrl string `json:"returnUrl,omitempty"`
+	// 这笔收款对应的记录，k3:// 引用
+	SourceRef string `json:"sourceRef,omitempty"`
+	// 付款页上的标题
+	Subject string `json:"subject"`
+	// 多少秒不付就失效。省略用平台默认
+	TtlSeconds int `json:"ttlSeconds,omitempty"`
 }
 
 // 另一个应用的一条记录
@@ -455,6 +1046,28 @@ type AppLink struct {
 	// 在所属应用里打开它的路由
 	Route string `json:"route,omitempty"`
 	Title string `json:"title"`
+}
+
+// 名单上的一条分享
+type AppResourceGrant struct {
+	CreatedAt time.Time `json:"createdAt"`
+	CreatedBy string    `json:"createdBy"`
+	ExpiresAt time.Time `json:"expiresAt,omitempty"`
+	// user、unit（部门）、role 或 everyone
+	Kind  string           `json:"kind"`
+	Level AppResourceLevel `json:"level"`
+	// 显示名
+	Name string `json:"name"`
+	// 对象 id；everyone 为空字符串
+	Principal string `json:"principal"`
+}
+
+// 复制一个对象。两个键都在本应用的文件夹里
+type AppBlobCopyRequest struct {
+	// 目标对象的键。已有同名对象会被覆盖
+	Dst string `json:"dst"`
+	// 来源对象的键
+	Src string `json:"src"`
 }
 
 // 客户资料。电话按员工界面打码
@@ -490,6 +1103,18 @@ type AppCustomerView struct {
 	WecomPending bool `json:"wecomPending,omitempty"`
 }
 
+// 对一条待办的决定
+type AppApprovalActRequest struct {
+	Action  string `json:"action"`
+	Comment string `json:"comment,omitempty"`
+	// 退回到哪个节点，或转交给谁
+	Target string `json:"target,omitempty"`
+	// 加签的人
+	Users []string `json:"users,omitempty"`
+	// 人看到的待办版本
+	Version int `json:"version"`
+}
+
 // 展示用的身份。value 只在请求了明文时出现
 type AppCustomerIdentityView struct {
 	FirstSeen time.Time `json:"firstSeen"`
@@ -517,6 +1142,13 @@ type AppServiceDelivery struct {
 	Trigger string `json:"trigger"`
 }
 
+// 应用里一个根的状态和它下面的全部节点
+type AppAccessReconcile struct {
+	Nodes []map[string]any `json:"nodes"`
+	// 根的状态
+	Spec map[string]any `json:"spec,omitempty"`
+}
+
 // 建立或修改权益模板
 type AppEntitlementTemplateRequest struct {
 	// 省略：建立时为启用，修改时不变
@@ -536,6 +1168,26 @@ type AppEntitlementTemplateRequest struct {
 	Scope []string `json:"scope,omitempty"`
 	// 可转让
 	Transferable bool `json:"transferable,omitempty"`
+}
+
+// 开关名到值，只能写类型声明过的开关
+type AppResourceToggles struct {
+}
+
+// 当前人员涉及本应用的草稿
+type AppDraftList struct {
+	Drafts []AppDraftView `json:"drafts"`
+}
+
+// 待办列表里的一行
+type AppApprovalWaiting struct {
+	// 审批 id
+	Approval string            `json:"approval"`
+	Lines    []AppApprovalLine `json:"lines"`
+	Since    time.Time         `json:"since"`
+	Subject  string            `json:"subject"`
+	Task     AppApprovalTask   `json:"task"`
+	Title    string            `json:"title"`
 }
 
 // 成交从哪个应用来
@@ -604,6 +1256,14 @@ type AppCustomerRef struct {
 	Name string `json:"name,omitempty"`
 }
 
+// 指向草稿里的一项
+type AppDraftItemRef struct {
+	DraftId string `json:"draftId"`
+	ItemId  string `json:"itemId"`
+	// 请求里给它的 key
+	Key string `json:"key,omitempty"`
+}
+
 // 按模板发放
 type AppEntitlementGrantRequest struct {
 	// 来源归因
@@ -626,6 +1286,121 @@ type AppEntitlementGrantRequest struct {
 	Template string `json:"template"`
 }
 
+// 排一条触达消息
+type AppOutreachSendRequest struct {
+	// 渠道种类，例如 sms
+	Channel string `json:"channel"`
+	// 客户 id
+	Customer string `json:"customer"`
+	// 这条消息的幂等键。同键再来不会加新消息
+	Key string `json:"key"`
+	// 服务通知，或营销
+	Purpose string `json:"purpose"`
+	// 模板 id
+	Template string `json:"template"`
+	// 是什么引起的，k3:// 引用，写进日志，不含个人信息
+	TriggerRef string `json:"triggerRef,omitempty"`
+	// 模板里的变量，按名字
+	Vars map[string]string `json:"vars,omitempty"`
+}
+
+// 排上的消息
+type AppOutreachQueued struct {
+	// 这个 key 以前排过：没有加新消息，id 是当初那条
+	Existing bool `json:"existing"`
+	// 消息 id
+	Id string `json:"id"`
+}
+
+// 推送的结果
+type AppCalendarApplied struct {
+	// 日历条目的 id，或 stale（已应用过更新的推送）
+	Result string `json:"result"`
+}
+
+// 提交审批的回答
+type AppApprovalRef struct {
+	Id string `json:"id"`
+	// 审批单号
+	Number string `json:"number"`
+	// running、returned、approved、rejected、withdrawn、terminated、error
+	Status string `json:"status"`
+}
+
+// 撤回
+type AppApprovalWithdrawRequest struct {
+	// 撤回的原因
+	Reason string `json:"reason,omitempty"`
+}
+
+// 改动前后的列表
+type AppOptionsSaved struct {
+	// 改动后
+	Now []string `json:"now"`
+	// 改动前
+	Old []string `json:"old"`
+}
+
+// 文档所属的资源
+type AppRealtimeDocResource struct {
+	// 资源 id
+	Id string `json:"id"`
+	// 资源类型，{应用 id}.{名字}
+	Type string `json:"type"`
+}
+
+// 文档投影出的内容。doc、data、board 按编码出现一个
+type AppRealtimeProjection struct {
+	// board-v1：看板
+	Board map[string]any `json:"board,omitempty"`
+	// ymap-v1：对象
+	Data map[string]any `json:"data,omitempty"`
+	// yjs-v1 与 Office 编码：ProseMirror JSON
+	Doc map[string]any `json:"doc,omitempty"`
+	// 纯文本
+	Plain string           `json:"plain"`
+	Refs  []AppRealtimeRef `json:"refs"`
+	// 投影所在的序号
+	Seq   int    `json:"seq"`
+	Title string `json:"title"`
+	// 字数
+	Words int `json:"words"`
+}
+
+// 文档里的一个引用
+type AppRealtimeRef struct {
+	App string `json:"app,omitempty"`
+	// 所在顶层块的 blockId
+	Block string `json:"block,omitempty"`
+	Kind  string `json:"kind,omitempty"`
+	// 被引用的对象（k3:// 引用、页面链接或网址）
+	Ref string `json:"ref"`
+	// ref、refCard、pageLink 或 link
+	Via string `json:"via"`
+}
+
+// 新草稿：草稿服务的创建正文，加上草稿属于的人
+type AppDraftCreateRequest struct {
+	// 草稿属于的人（企业成员的用户 id）。应用自己的令牌必须给；页面会话省略或等于本人
+	For string `json:"for,omitempty"`
+	// 提议的变更
+	Items []AppDraftItemInput `json:"items"`
+	// 起草所在的对话
+	SessionId string `json:"sessionId,omitempty"`
+	// 一句话：草稿做什么、为什么
+	Summary string `json:"summary,omitempty"`
+	// 提议所在的那一轮，随每个提议的值保存
+	Turn string `json:"turn,omitempty"`
+}
+
+// 旧门店 id 换成组织里的门店
+type AppEntitlementStoreRelinkRequest struct {
+	// 旧门店 id（应用自己的旧记录）
+	From string `json:"from"`
+	// 组织里的门店（部门 id）
+	To string `json:"to"`
+}
+
 // 时间线上的一条接触
 type AppCustomerTouchRequest struct {
 	// 省略为现在
@@ -639,6 +1414,73 @@ type AppCustomerTouchRequest struct {
 	Kind string `json:"kind"`
 	// 指向所发生之事的 k3:// 引用
 	Ref string `json:"ref,omitempty"`
+}
+
+// 服务端的一次改动
+type AppRealtimeEditRequest struct {
+	// 为 true 只预演
+	Dry  bool                `json:"dry,omitempty"`
+	Edit AppRealtimeEditBody `json:"edit"`
+	// 改动的来历，默认 system
+	Origin string `json:"origin,omitempty"`
+}
+
+// 本人在原处审阅一项：填的值，以及按字段选了谁的值
+type AppDraftItemEdit struct {
+	// 本人填的值，按字段名
+	Fields map[string]any `json:"fields,omitempty"`
+	// 按字段选哪个值：base 保持原样，某一轮则取那一轮的提议，空串取最新
+	Pick map[string]string `json:"pick,omitempty"`
+	// 本人看到的版本
+	Revision int `json:"revision"`
+}
+
+// 本人审阅过的一项，在他们看到的版本上
+type AppDraftApplyItem struct {
+	// 本人确认了操作 intervention.confirm 里写的事
+	Confirmed bool   `json:"confirmed,omitempty"`
+	Id        string `json:"id"`
+	Revision  int    `json:"revision"`
+}
+
+// 本应用文件夹里的一个对象
+type AppBlobInfo struct {
+	// 对象的类型。可能为空
+	ContentType string `json:"contentType,omitempty"`
+	// 对象的键，以 apps/{本应用 id}/ 开头
+	Key string `json:"key"`
+	// 最后写入的时间
+	ModTime time.Time `json:"modTime"`
+	// 字节数
+	Size int `json:"size"`
+}
+
+// 本应用的一条日程在日历上的样子
+type AppCalendarProjection struct {
+	AllDay bool `json:"allDay,omitempty"`
+	// 其他参与的人
+	Attendees []string `json:"attendees,omitempty"`
+	// 只有这条日程自己的人能读的内容
+	Detail string    `json:"detail,omitempty"`
+	End    time.Time `json:"end"`
+	// 这条日程属于的人（用户 id）
+	Owner string `json:"owner"`
+	Place string `json:"place,omitempty"`
+	// 隐私等级。省略是 normal
+	Privacy string `json:"privacy,omitempty"`
+	// 事实的 k3:// 引用，k3://{应用}/{类型}/{id}
+	Ref string `json:"ref"`
+	// 在本应用里打开它的路由
+	Route string    `json:"route,omitempty"`
+	Start time.Time `json:"start"`
+	// 应用自己的状态词，显示在条目旁
+	State string `json:"state,omitempty"`
+	// 中文标题
+	Title string `json:"title"`
+	// 英文标题
+	TitleEn string `json:"titleEn,omitempty"`
+	// 时区
+	Tz string `json:"tz,omitempty"`
 }
 
 // 权益的一条变动
@@ -683,6 +1525,56 @@ type AppAccess struct {
 	Units []string `json:"Units,omitempty"`
 }
 
+// 某个前缀下的对象
+type AppBlobList struct {
+	// 对象
+	Items []AppBlobInfo `json:"items"`
+}
+
+// 树类型的 GET /access/{type}/{id}
+type AppAccessTreeView struct {
+	// 有效名单：自己的，加上继承时上面的（集合里的条目）
+	Effective []AppAccessTreeEntry `json:"effective,omitempty"`
+	Entries   []AppAccessTreeEntry `json:"entries"`
+	Id        string               `json:"id"`
+	// 调用者经状态限制后的级别；空字符串是没有（应用的令牌不带 user 时也为空）
+	Level string `json:"level"`
+	// 状态给的原因：trashed、archived、published_only
+	Reason string `json:"reason,omitempty"`
+	// 根或节点指向的集合 id
+	Set  string `json:"set"`
+	Type string `json:"type"`
+}
+
+// 树类型的 POST /access/{type}/{id}：根的状态，或节点的位置和状态
+type AppAccessTreePut struct {
+	// 根已归档：最多 comment
+	Archived bool `json:"archived,omitempty"`
+	// 是否继承上级名单，省略为 true
+	Inherit bool `json:"inherit,omitempty"`
+	// 父节点；省略为根的顶层
+	Parent string `json:"parent,omitempty"`
+	// 根只读发布版：edit 以下和智能体读已发布版本
+	PublishOnly bool `json:"publishOnly,omitempty"`
+	// 节点所在的根；顶层节点必填，有 parent 时以父节点的根为准
+	Root string `json:"root,omitempty"`
+	// 节点在应用的回收站里：管理级别以下没有权限
+	Trashed bool `json:"trashed,omitempty"`
+}
+
+// 树类型的一条显式名单
+type AppAccessTreeEntry struct {
+	// 这条写入的时间（显式名单才有；有效名单里为空）
+	At time.Time `json:"at,omitempty"`
+	// user、unit（部门，含下级）、role 或 everyone
+	Kind  string           `json:"kind"`
+	Level AppResourceLevel `json:"level"`
+	// 显示名的快照；判断只看 kind 和 principal
+	Name string `json:"name,omitempty"`
+	// 对象 id；everyone 为空字符串
+	Principal string `json:"principal"`
+}
+
 // 核销单和核销后的权益
 type AppEntitlementRedeemResult struct {
 	Grant      AppEntitlementGrant      `json:"grant"`
@@ -711,6 +1603,36 @@ type AppEntitlementRedeemRequest struct {
 	Times int `json:"times,omitempty"`
 	// 线下核销的门店
 	Where string `json:"where,omitempty"`
+}
+
+// 模型的回答
+type AppModelText struct {
+	Text string `json:"text"`
+}
+
+// 申请访问
+type AppResourceAskRequest struct {
+	Level *AppResourceLevel `json:"level,omitempty"`
+	// 给处理的人看的话
+	Note string `json:"note,omitempty"`
+}
+
+// 登记资源。页面会话登记时所有者就是这个人，可省略正文。树类型的正文是 AccessTreePut 的字段
+type AppResourceRegisterRequest struct {
+	// 树类型的根：已归档
+	Archived bool `json:"archived,omitempty"`
+	// 树类型的节点：是否继承上级名单，省略为 true
+	Inherit bool `json:"inherit,omitempty"`
+	// 所有者的 user id。应用自己的令牌必填（平铺类型）
+	Owner string `json:"owner,omitempty"`
+	// 树类型的节点：父节点；省略为根的顶层
+	Parent string `json:"parent,omitempty"`
+	// 树类型的根：edit 以下按已发布版本读
+	PublishOnly bool `json:"publishOnly,omitempty"`
+	// 树类型的节点：所在的根（顶层节点必填）
+	Root string `json:"root,omitempty"`
+	// 树类型的节点：在应用的回收站里
+	Trashed bool `json:"trashed,omitempty"`
 }
 
 // 种类相关的参数（字段名是 snake_case）；哪个种类读哪些字段由服务在保存模板时检查
@@ -768,6 +1690,8 @@ const (
 	AppErrorCodeAssertionStale        AppErrorCode = "assertion_stale"
 	AppErrorCodeConditionFailed       AppErrorCode = "condition_failed"
 	AppErrorCodeConflict              AppErrorCode = "conflict"
+	AppErrorCodeConsentRequired       AppErrorCode = "consent_required"
+	AppErrorCodeConsentRevoked        AppErrorCode = "consent_revoked"
 	AppErrorCodeCredentialEnded       AppErrorCode = "credential_ended"
 	AppErrorCodeCustomerTokenRequired AppErrorCode = "customer_token_required"
 	AppErrorCodeForbidden             AppErrorCode = "forbidden"
@@ -777,6 +1701,7 @@ const (
 	AppErrorCodeInvalid               AppErrorCode = "invalid"
 	AppErrorCodeInvalidClient         AppErrorCode = "invalid_client"
 	AppErrorCodeInvalidCredential     AppErrorCode = "invalid_credential"
+	AppErrorCodeInvalidGrant          AppErrorCode = "invalid_grant"
 	AppErrorCodeInvalidPhone          AppErrorCode = "invalid_phone"
 	AppErrorCodeInvalidRequest        AppErrorCode = "invalid_request"
 	AppErrorCodeInvalidToken          AppErrorCode = "invalid_token"
@@ -786,6 +1711,7 @@ const (
 	AppErrorCodeNotImplemented        AppErrorCode = "not_implemented"
 	AppErrorCodeNotInstalled          AppErrorCode = "not_installed"
 	AppErrorCodePayloadTooLarge       AppErrorCode = "payload_too_large"
+	AppErrorCodePersonGone            AppErrorCode = "person_gone"
 	AppErrorCodeRateLimited           AppErrorCode = "rate_limited"
 	AppErrorCodeScopeRequired         AppErrorCode = "scope_required"
 	AppErrorCodeTenantRequired        AppErrorCode = "tenant_required"
@@ -798,12 +1724,173 @@ const (
 	AppErrorCodeWrongEnvironment      AppErrorCode = "wrong_environment"
 )
 
+// 组织的一家门店：门店类部门及其主数据
+type AppStore struct {
+	Address string `json:"address,omitempty"`
+	City    string `json:"city,omitempty"`
+	// 门店编码
+	Code     string `json:"code,omitempty"`
+	District string `json:"district,omitempty"`
+	// 营业时间
+	Hours string `json:"hours,omitempty"`
+	// 部门 id；应用用它引用门店
+	Id   string  `json:"id"`
+	Lat  float64 `json:"lat,omitempty"`
+	Lng  float64 `json:"lng,omitempty"`
+	Name string  `json:"name"`
+	// 开业日期
+	OpenedOn string `json:"openedOn,omitempty"`
+	// 上级部门 id
+	ParentId string `json:"parentId,omitempty"`
+	// 部门在组织树里的路径
+	Path     string `json:"path"`
+	Phone    string `json:"phone,omitempty"`
+	Province string `json:"province,omitempty"`
+	// 门店上面的部门链，最上层在前，例如 山东省 / 鲁东区 / 济南
+	Region string `json:"region,omitempty"`
+	// planning、open、paused 或 closed；门店资料还没填时为空
+	Status string `json:"status"`
+}
+
+// 给企业成员发一条站内通知
+type AppNotifyRequest struct {
+	// 正文
+	Body string `json:"body,omitempty"`
+	// 通知的性质，供推送到平台以外的渠道用。省略由渠道决定
+	Class string `json:"class,omitempty"`
+	// 点开后去哪：应用内的路由、https:// 或 k3:// 地址
+	Link string `json:"link,omitempty"`
+	// 标题。必填
+	Title string `json:"title"`
+	// 企业成员的用户 id，最多 500 个
+	Users []string `json:"users"`
+}
+
+// 草稿服务的拒绝：error 是给人看的话，另有这次拒绝带的字段（item、missing、confirm 等）
+type AppDraftError struct {
+	Error string `json:"error"`
+}
+
+// 草稿的新状态，以及每一项发生了什么
+type AppDraftApplyOutcome struct {
+	// 按项 id
+	Results map[string]AppDraftExecuteResult `json:"results"`
+	Status  string                           `json:"status"`
+}
+
+// 草稿里其他应用的项只给数量
+type AppDraftOtherApp struct {
+	App     string `json:"app"`
+	Applied int    `json:"applied"`
+	Pending int    `json:"pending"`
+}
+
+// 草稿里的一项：一个应用的一个操作
+type AppDraftItem struct {
+	App string `json:"app"`
+	// 现算的：能否应用
+	Applicable bool `json:"applicable,omitempty"`
+	// 起草时应用报告的版本；之后预演报告了别的就是过期
+	BaseVersion string                 `json:"baseVersion,omitempty"`
+	DependsOn   []string               `json:"dependsOn,omitempty"`
+	DryRun      *AppDraftExecuteResult `json:"dryRun,omitempty"`
+	// 按字段名的值与提议
+	Fields map[string]AppDraftField `json:"fields"`
+	Group  string                   `json:"group,omitempty"`
+	Id     string                   `json:"id"`
+	// 现算的检查结论
+	Mark   string                 `json:"mark,omitempty"`
+	Op     string                 `json:"op"`
+	Reason string                 `json:"reason,omitempty"`
+	Result *AppDraftExecuteResult `json:"result,omitempty"`
+	// 每次改动加一；应用时必须与本人看到的一致
+	Revision int `json:"revision"`
+	// 状态。省略是 pending
+	State string `json:"state,omitempty"`
+	// 要改或删的记录的 k3:// 引用
+	Target string `json:"target,omitempty"`
+	// 提议过这一项的轮次，旧的在前
+	Turns []string `json:"turns,omitempty"`
+}
+
+// 草稿项的一个字段：当前值、各轮的提议和本人的修改
+type AppDraftField struct {
+}
+
 // 要一张账单（收入是应收，支出是应付），而不是一笔流水
 type AppLedgerBill struct {
 	// YYYY-MM-DD；省略为没有到期日
 	DueOn string `json:"dueOn,omitempty"`
 	Title string `json:"title,omitempty"`
 }
+
+// 要加密的一段个人数据
+type AppSecretEncryptRequest struct {
+	// 明文，base64；正文最多 64 KiB（明文约 48 KiB）
+	Plaintext string `json:"plaintext"`
+	// 本应用的主体 <种类>:<id>，例如 recipient:f_123
+	Subject string `json:"subject"`
+}
+
+// 要应用的项
+type AppDraftApplyRequest struct {
+	Items []AppDraftApplyItem `json:"items"`
+}
+
+// 要解密的密文
+type AppSecretDecryptRequest struct {
+	// 加密时得到的密文，base64
+	Ciphertext string `json:"ciphertext"`
+	// 加密时的主体 <种类>:<id>
+	Subject string `json:"subject"`
+}
+
+// 要销毁钥匙的主体
+type AppSecretShredRequest struct {
+	// 本应用的主体 <种类>:<id>
+	Subject string `json:"subject"`
+}
+
+// 触达日志里的一条消息
+type AppOutreachMessage struct {
+	Attempts     int       `json:"attempts"`
+	Channel      string    `json:"channel"`
+	Cost         int       `json:"cost,omitempty"`
+	CreatedAt    time.Time `json:"createdAt"`
+	CreatedBy    string    `json:"createdBy,omitempty"`
+	Customer     string    `json:"customer"`
+	CustomerName string    `json:"customerName,omitempty"`
+	DeliverAfter time.Time `json:"deliverAfter,omitempty"`
+	DeliveredAt  time.Time `json:"deliveredAt,omitempty"`
+	Detail       string    `json:"detail,omitempty"`
+	Id           string    `json:"id"`
+	ProviderRef  string    `json:"providerRef,omitempty"`
+	Purpose      string    `json:"purpose,omitempty"`
+	// 没发出时的原因码
+	Reason string `json:"reason,omitempty"`
+	// 原因的话
+	ReasonText string    `json:"reasonText,omitempty"`
+	SentAt     time.Time `json:"sentAt,omitempty"`
+	// 状态，例如 queued、sent、delivered、failed、skipped
+	State           string            `json:"state"`
+	Template        string            `json:"template"`
+	TemplateName    string            `json:"templateName,omitempty"`
+	TemplateVersion int               `json:"templateVersion,omitempty"`
+	TriggerApp      string            `json:"triggerApp,omitempty"`
+	TriggerRef      string            `json:"triggerRef,omitempty"`
+	UpdatedAt       time.Time         `json:"updatedAt"`
+	Vars            map[string]string `json:"vars,omitempty"`
+}
+
+// 访问级别，由低到高。类型可以不开放 comment 或 manage 以上的级别
+type AppResourceLevel string
+
+const (
+	AppResourceLevelComment AppResourceLevel = "comment"
+	AppResourceLevelEdit    AppResourceLevel = "edit"
+	AppResourceLevelManage  AppResourceLevel = "manage"
+	AppResourceLevelView    AppResourceLevel = "view"
+)
 
 // 请 granter 发放的一件东西
 type AppEntitlementGrantItem struct {
@@ -827,6 +1914,46 @@ type AppEntitlementGrantItem struct {
 	Source string `json:"source,omitempty"`
 }
 
+// 谁写了一条记录
+type AppDraftProvenance struct {
+	App      string    `json:"app"`
+	At       time.Time `json:"at"`
+	DraftId  string    `json:"draftId"`
+	ItemId   string    `json:"itemId"`
+	Name     string    `json:"name,omitempty"`
+	Op       string    `json:"op"`
+	PolicyId string    `json:"policyId,omitempty"`
+	Ref      string    `json:"ref"`
+	// 本人的用户 id
+	Subject string `json:"subject"`
+	// 本人应用了一份草稿，还是预先签了策略
+	Via string `json:"via"`
+}
+
+// 调用者看到的一个审批
+type AppApprovalView struct {
+	CanWithdraw bool              `json:"canWithdraw"`
+	Id          string            `json:"id"`
+	Kind        string            `json:"kind"`
+	Lines       []AppApprovalLine `json:"lines"`
+	// 审批应用里这条审批的页面
+	Link string `json:"link"`
+	// 调用者自己待办的任务
+	Mine      []AppApprovalTask `json:"mine"`
+	Number    string            `json:"number"`
+	Requester string            `json:"requester"`
+	// 把结果告诉第三方应用的进展：pending、done、failed；没有要告诉的则省略
+	Settle     string `json:"settle,omitempty"`
+	SettleNote string `json:"settleNote,omitempty"`
+	// running、returned、approved、rejected、withdrawn、terminated、error
+	Status  string            `json:"status"`
+	Steps   []AppApprovalStep `json:"steps"`
+	Subject string            `json:"subject"`
+	Title   string            `json:"title"`
+	// 在等谁，例如“直属上级：鲍勃”
+	Waiting []string `json:"waiting"`
+}
+
 // 转让
 type AppEntitlementTransferRequest struct {
 	// 被路径里的 id 取代，可省略
@@ -835,6 +1962,16 @@ type AppEntitlementTransferRequest struct {
 	Reason string `json:"reason,omitempty"`
 	// 接收的客户 id
 	To string `json:"to"`
+}
+
+// 进度里的一行
+type AppApprovalStep struct {
+	Actor   string    `json:"actor,omitempty"`
+	At      time.Time `json:"at"`
+	Comment string    `json:"comment,omitempty"`
+	Kind    string    `json:"kind"`
+	Name    string    `json:"name,omitempty"`
+	Node    string    `json:"node,omitempty"`
 }
 
 // 退一项权益
@@ -854,6 +1991,40 @@ type AppEntitlementRefundResult struct {
 	// 退回的金额（服务不动钱，由调用方退）
 	AmountCents int                 `json:"amountCents"`
 	Grant       AppEntitlementGrant `json:"grant"`
+}
+
+// 退款。amountCents 为 0 或省略是退剩下的全部
+type AppPayRefundRequest struct {
+	// 退多少，整数分
+	AmountCents int `json:"amountCents,omitempty"`
+	// 幂等键；省略时用请求头 Idempotency-Key
+	Key string `json:"key,omitempty"`
+	// 退款原因
+	Reason string `json:"reason,omitempty"`
+}
+
+// 通知已交给消息中心
+type AppNotifyAccepted struct {
+	// 收到通知的人数
+	Accepted int `json:"accepted"`
+	// 没有发出的人数（不是本企业的在职成员）
+	Rejected int `json:"rejected"`
+}
+
+// 重新开始用的内容
+type AppRealtimeEpochRequest struct {
+	// 新的 ProseMirror 文档；省略是空文档
+	Doc map[string]any `json:"doc,omitempty"`
+}
+
+// 问一个站点一段日期里的访问量
+type AppSiteUsageRequest struct {
+	// 从这一天（含）
+	From time.Time `json:"from"`
+	// 站点 id
+	Site string `json:"site"`
+	// 到这一天（含）；省略为到今天
+	To time.Time `json:"to,omitempty"`
 }
 
 // 预留：核销的字段加保留多久
@@ -880,12 +2051,42 @@ type AppEntitlementReserveRequest struct {
 	Where string `json:"where,omitempty"`
 }
 
+type AppAccessReconciled struct {
+	// 改了几个节点（写入的加删除的）
+	Changed int `json:"changed"`
+}
+
+type AppApprovalLine struct {
+	Label string `json:"label"`
+	Text  string `json:"text"`
+}
+
+type AppApprovalParticipates struct {
+	Participates bool `json:"participates"`
+}
+
+type AppApprovalWaitingList struct {
+	Items []AppApprovalWaiting `json:"items"`
+}
+
 type AppAuditRequest struct {
 	// 必须以 {本应用 id}. 开头
 	Action string `json:"action"`
 	// 任意 JSON，记入审计链
 	Diff     map[string]any `json:"diff,omitempty"`
 	Resource string         `json:"resource"`
+}
+
+type AppDraftItemResponse struct {
+	Item AppDraftItem `json:"item"`
+}
+
+type AppDraftOk struct {
+	Ok bool `json:"ok"`
+}
+
+type AppDraftProvenanceList struct {
+	Provenance []AppDraftProvenance `json:"provenance"`
 }
 
 type AppEmitAccepted struct {
@@ -916,6 +2117,37 @@ type AppErrorBody struct {
 	Message string `json:"message"`
 	// 与 X-Request-Id 相同
 	RequestId string `json:"requestId,omitempty"`
+}
+
+type AppErrorOccurrence struct {
+	// 发生时间；缺省或差一天以上用平台时间
+	At time.Time `json:"at,omitempty"`
+	// 应用自己的错误码（标识符，最长 64）
+	Code string `json:"code,omitempty"`
+	// 调用栈，最上面一帧在前
+	Frames []string `json:"frames,omitempty"`
+	// 错误类型（异常类名等标识符）
+	Kind string `json:"kind,omitempty"`
+	// 自由文本：开发者看到的是脱敏后的样子，值换成占位符，所有非 ASCII 的文字（中文等）也换成 <text>；想让开发者读得懂，用 template + params
+	Message string `json:"message,omitempty"`
+	Method  string `json:"method,omitempty"`
+	// 消息引用的值：不进开发者视图
+	Params    []string `json:"params,omitempty"`
+	RequestId string   `json:"requestId,omitempty"`
+	// 出错的路径；查询串去掉，像值的段换成 :id
+	Route string `json:"route,omitempty"`
+	// 固定模板：应用代码里的常量（如「会员不存在：{name}」），开发者看到原文（其中的数字、引号内容等仍脱敏）；值放进 params
+	Template string `json:"template,omitempty"`
+	// 应用版本
+	Version string `json:"version,omitempty"`
+}
+
+type AppErrorReport struct {
+	Errors []AppErrorOccurrence `json:"errors"`
+}
+
+type AppErrorReportAccepted struct {
+	Accepted int `json:"accepted"`
 }
 
 type AppIdentifiedVisitor struct {
@@ -977,6 +2209,114 @@ type AppMembers struct {
 	Items []AppMember `json:"items"`
 }
 
+type AppOutreachChannelList struct {
+	Items []AppOutreachChannel `json:"items"`
+}
+
+type AppOutreachSecretInfo struct {
+	// 密钥的指纹
+	Fingerprint string `json:"fingerprint,omitempty"`
+	// 已设置密钥
+	Set bool `json:"set"`
+}
+
+type AppOutreachTemplateField struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+type AppOutreachTemplateList struct {
+	Items []AppOutreachTemplate `json:"items"`
+}
+
+type AppPayRefundList struct {
+	Items []AppPayRefund `json:"items"`
+}
+
+type AppRealtimeEditResult struct {
+	Projection AppRealtimeProjection `json:"projection"`
+	// 改动落在的序号（预演时是将落在的序号）
+	Seq int `json:"seq"`
+}
+
+type AppRealtimeEpoch struct {
+	// 新的纪元
+	Epoch int `json:"epoch"`
+}
+
+type AppResourceCheckAnswer struct {
+	// id 到是否达到所问的级别；只在请求写了 level 时出现
+	Allowed map[string]bool `json:"allowed,omitempty"`
+	// id 到级别；空字符串是没有权限或没登记
+	Levels map[string]string `json:"levels"`
+	// 树类型：id 到状态给的原因（trashed、archived、published_only）；没有原因的 id 不出现
+	Reasons map[string]string `json:"reasons,omitempty"`
+}
+
+type AppResourceCheckRequest struct {
+	// 树类型：按这个人的智能体算（最多 comment，publishOnly 时读发布版）
+	Agent bool `json:"agent,omitempty"`
+	// 要查的资源 id
+	Ids []string `json:"ids"`
+	// 可省略；写了就另外给出是否达到
+	Level string `json:"level,omitempty"`
+	// 应用自己的令牌必填：查谁
+	User string `json:"user,omitempty"`
+}
+
+type AppResourceGeneral struct {
+	// 设置后的通用访问
+	General string `json:"general"`
+}
+
+type AppResourceGeneralRequest struct {
+	// 空字符串：只有名单上的人
+	Level string `json:"level"`
+}
+
+type AppResourceOk struct {
+	Ok bool `json:"ok"`
+}
+
+type AppResourceOwner struct {
+	// 新的所有者
+	Owner string `json:"owner"`
+}
+
+type AppResourceRegistered struct {
+	Id    string `json:"id"`
+	Owner string `json:"owner"`
+	Type  string `json:"type"`
+}
+
+type AppResourceRequestList struct {
+	Requests []AppResourceRequest `json:"requests"`
+}
+
+type AppResourceTransferRequest struct {
+	// 新所有者的显示名
+	Name string `json:"name,omitempty"`
+	// 新所有者的 user id
+	To string `json:"to"`
+}
+
+type AppResourceVisible struct {
+	// 按 id 排序的一页
+	Ids []string `json:"ids"`
+	// 下一页的 cursor；空字符串是到头了
+	Next string `json:"next"`
+}
+
+type AppSecretCiphertext struct {
+	// 密文，base64；由应用保存
+	Ciphertext string `json:"ciphertext"`
+}
+
+type AppSecretPlaintext struct {
+	// 明文，base64
+	Plaintext string `json:"plaintext"`
+}
+
 type AppServiceCallRequest struct {
 	// 去重：同一个键就是同一次运行
 	IdempotencyKey string `json:"idempotencyKey,omitempty"`
@@ -991,6 +2331,14 @@ type AppServiceRun struct {
 	Id string `json:"id"`
 	// 运行的状态
 	Status string `json:"status"`
+}
+
+type AppSiteSummaries struct {
+	Summaries []AppSiteSummary `json:"summaries"`
+}
+
+type AppSiteSummariesRequest struct {
+	Requests []AppSiteUsageRequest `json:"requests"`
 }
 
 type AppSiteVisitor struct {
@@ -1008,6 +2356,10 @@ type AppSiteVisitorIdentified struct {
 type AppSiteVisitorIdentifyRequest struct {
 	// 客户 id
 	Customer string `json:"customer"`
+}
+
+type AppStoreList struct {
+	Stores []AppStore `json:"stores"`
 }
 
 type AppUnit struct {

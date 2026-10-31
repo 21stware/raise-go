@@ -56,6 +56,18 @@ if err != nil {
 }
 ```
 
+## 向开发者平台报告应用的错误
+
+`POST /app/v1/errors`（manifest 的 `uses` 声明 `app.errors:report`）。平台在保存前脱敏：开发者平台和 `k3 logs --errors` 只看到占位符，看不到企业的数据。自由文本 `Message` 里的值（引号内容、数字、邮箱、网址、令牌、`key=value`）和**所有中文等非 ASCII 文字**都换成占位符（`<str>` `<n>` `<email>` `<text>`…）。想让开发者读得懂：报 `Code` + 固定的 `Template`（代码里的常量，原文保留）+ `Params`（值，不进开发者视图，只在企业批准的限时诊断里给开发者看）。
+
+```go
+const errMemberMissing = "会员不存在：{name}" // 常量，不拼值
+_, err := c.App.Errors.Report(ctx, &raise.AppErrorReport{Errors: []raise.AppErrorOccurrence{{
+    Kind: "NotFound", Code: "member.missing", Template: errMemberMissing, Params: []string{name},
+    Frames: []string{"members.get (members.go:42)"}, Route: "/api/members/{id}", Method: "GET", Version: "1.4.0",
+}}})
+```
+
 ## Webhook
 
 ```go

@@ -49,6 +49,160 @@ func (s *AppAccessService) Unit(ctx context.Context) (*AppUnit, error) {
 	return &out, nil
 }
 
+// AppApprovalsService is the approvals resource of the app API.
+type AppApprovalsService struct{ c *Client }
+
+// 处理一条审批待办
+// 需要范围 `app.approvals:write`。English: decides a task of the person's.
+//
+// 审批是人的：除 `GET /approvals/participates` 外只收页面会话，应用自己的令牌是 403 `forbidden`。`action` 是 approve、reject、return、transfer、presign、aftersign、cosign 之一；`version` 是人看到的待办版本，过期是 409 `conflict`；转交和加签用 `target` 或 `users`。返回处理后的审批。
+func (s *AppApprovalsService) Act(ctx context.Context, task string, body *AppApprovalActRequest, opts ...CallOption) (*AppApprovalView, error) {
+	path := "/approvals/tasks/" + url.PathEscape(task) + "/actions"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppApprovalView
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 读取一个对象最近的审批
+// 需要范围 `app.approvals:read`。English: the latest approval of an object of the app, for its requester or someone asked to decide.
+//
+// 审批是人的：除 `GET /approvals/participates` 外只收页面会话，应用自己的令牌是 403 `forbidden`。`subject` 是对象的引用。别人的审批、或没有审批，是 404 `not_found`。
+func (s *AppApprovalsService) Get(ctx context.Context, p *AppApprovalsGetParams) (*AppApprovalView, error) {
+	path := "/approvals"
+	q := url.Values{}
+	if p != nil {
+		if p.Subject != "" {
+			q.Set("subject", p.Subject)
+		}
+	}
+	var ro requestOptions
+	var out AppApprovalView
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 列出当前人员本应用的审批待办
+// 需要范围 `app.approvals:read`。English: the tasks waiting for the person in the app's approvals.
+//
+// 审批是人的：除 `GET /approvals/participates` 外只收页面会话，应用自己的令牌是 403 `forbidden`。`kind` 只要这一种审批的待办。最多 100 条。返回 `{items}`。
+func (s *AppApprovalsService) ListWaiting(ctx context.Context, p *AppApprovalsListWaitingParams) (*AppApprovalWaitingList, error) {
+	path := "/approvals/waiting"
+	q := url.Values{}
+	if p != nil {
+		if p.Kind != "" {
+			q.Set("kind", p.Kind)
+		}
+	}
+	var ro requestOptions
+	var out AppApprovalWaitingList
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 问某人是否参与一个对象的审批
+// 需要范围 `app.approvals:read`。English: whether `user` takes part in the approval of `subject` (what lets the app show the object to them).
+//
+// 这一个操作应用自己的令牌也能调。返回 `{participates}`。
+func (s *AppApprovalsService) Participates(ctx context.Context, p *AppApprovalsParticipatesParams) (*AppApprovalParticipates, error) {
+	path := "/approvals/participates"
+	q := url.Values{}
+	if p != nil {
+		if p.Subject != "" {
+			q.Set("subject", p.Subject)
+		}
+		if p.User != "" {
+			q.Set("user", p.User)
+		}
+	}
+	var ro requestOptions
+	var out AppApprovalParticipates
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 重新提交一个被退回的审批
+// 需要范围 `app.approvals:write`。English: submits a returned approval again.
+//
+// 审批是人的：除 `GET /approvals/participates` 外只收页面会话，应用自己的令牌是 403 `forbidden`。正文同提交。返回审批的引用。
+func (s *AppApprovalsService) Resubmit(ctx context.Context, id string, body *AppApprovalSubmitRequest, opts ...CallOption) (*AppApprovalRef, error) {
+	path := "/approvals/" + url.PathEscape(id) + "/resubmit"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppApprovalRef
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 为本应用的一个对象提交审批
+// 需要范围 `app.approvals:write`。English: asks for the approval of one object of the app, as the person using it.
+//
+// 审批是人的：除 `GET /approvals/participates` 外只收页面会话，应用自己的令牌是 403 `forbidden`。`kind` 是本应用在清单 `approvals` 里声明的审批种类，`subject` 是对象的引用。事实和摘要不由人的令牌给：平台向应用发签名的 PREPARE 调用，由应用的回答决定；结果以签名的 DECIDED 事件送回应用。同一对象已有没结束的审批是 409 `conflict`；应用拒绝（对象不存在、状态不对）是 409 或 422，话是给人看的。返回 201 和审批的引用。
+func (s *AppApprovalsService) Submit(ctx context.Context, body *AppApprovalSubmitRequest, opts ...CallOption) (*AppApprovalRef, error) {
+	path := "/approvals"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppApprovalRef
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 撤回自己提交的审批
+// 需要范围 `app.approvals:write`。English: withdraws the person's own approval.
+//
+// 审批是人的：除 `GET /approvals/participates` 外只收页面会话，应用自己的令牌是 403 `forbidden`。`reason` 是撤回的原因，可省略。返回审批的引用。
+func (s *AppApprovalsService) Withdraw(ctx context.Context, id string, body *AppApprovalWithdrawRequest, opts ...CallOption) (*AppApprovalRef, error) {
+	path := "/approvals/" + url.PathEscape(id) + "/withdraw"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppApprovalRef
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // AppAuditService is the audit resource of the app API.
 type AppAuditService struct{ c *Client }
 
@@ -64,6 +218,153 @@ func (s *AppAuditService) Append(ctx context.Context, body *AppAuditRequest, opt
 		o(&ro)
 	}
 	var out map[string]any
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// AppBlobsService is the blobs resource of the app API.
+type AppBlobsService struct{ c *Client }
+
+// 在本应用的文件夹里复制一个对象
+// 需要范围 `app.blobs:write`。English: copies the object `src` to `dst`, both in the app's folder.
+//
+// `src` 不存在是 404 `not_found`。成功回答 204，没有正文。
+func (s *AppBlobsService) Copy(ctx context.Context, body *AppBlobCopyRequest, opts ...CallOption) (*map[string]any, error) {
+	path := "/blobs/copy"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out map[string]any
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 删除本应用文件夹里的一个对象
+// 需要范围 `app.blobs:write`。English: deletes the object `key`; deleting what is not there is done.
+//
+// 成功回答 204，没有正文；对象本来就不存在也是 204。
+func (s *AppBlobsService) Delete(ctx context.Context, key string, opts ...CallOption) (*map[string]any, error) {
+	path := "/blobs/objects/" + (&url.URL{Path: key}).EscapedPath()
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out map[string]any
+	if err := s.c.doApp(ctx, "DELETE", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 删除本应用文件夹里某个前缀下的全部对象
+// 需要范围 `app.blobs:write`。English: deletes every object below `prefix` of the app's folder.
+//
+// `prefix` 可以就是整个文件夹 `apps/{本应用 id}/`（删光本应用的文件）。成功回答 204，没有正文。
+func (s *AppBlobsService) DeletePrefix(ctx context.Context, body *AppBlobDeletePrefixRequest, opts ...CallOption) (*map[string]any, error) {
+	path := "/blobs/delete-prefix"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out map[string]any
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 读取一个对象的元数据
+// 需要范围 `app.blobs:read`。English: the size, type and last write time of the object `key`, without its bytes.
+//
+// 对象不存在是 404 `not_found`。
+func (s *AppBlobsService) Head(ctx context.Context, key string) (*AppBlobInfo, error) {
+	path := "/blobs/meta/" + (&url.URL{Path: key}).EscapedPath()
+	var q url.Values
+	var ro requestOptions
+	var out AppBlobInfo
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 列出本应用文件夹里某个前缀下的对象
+// 需要范围 `app.blobs:read`。English: lists the objects below a prefix of the app's folder.
+//
+// `prefix` 省略时列出整个文件夹 `apps/{本应用 id}/`；给了就必须在本应用的文件夹里，可以以 `/` 结尾。返回 `{items}`。
+func (s *AppBlobsService) List(ctx context.Context, p *AppBlobsListParams) (*AppBlobList, error) {
+	path := "/blobs"
+	q := url.Values{}
+	if p != nil {
+		if p.Prefix != "" {
+			q.Set("prefix", p.Prefix)
+		}
+	}
+	var ro requestOptions
+	var out AppBlobList
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 为一个对象拿一个不带令牌的上传或下载地址
+// 需要范围 `app.blobs:read`；`method` 为 `PUT`（上传）时还需要 `app.blobs:write`，缺了是 403。English: a URL to PUT (upload) or GET (download) one object of the app's folder, usable without a token until `expiresAt`.
+//
+// 字节直接走到文件存储，不经平台，所以没有 512 MiB 的限制；企业的存储额度仍然有效。`ttlSeconds` 省略时取最大值：上传 900 秒、下载 300 秒，超过是 422。上传必须给 `size`（确切字节数，≤ 512 MiB）：大小签进地址，长度不符的上传被存储拒绝；放不进企业剩余额度的在签发前就是 413。下载地址要求对象已存在，不存在是 404 `not_found`。
+func (s *AppBlobsService) Presign(ctx context.Context, body *AppBlobPresignRequest, opts ...CallOption) (*AppBlobPresigned, error) {
+	path := "/blobs/presign"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppBlobPresigned
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// AppCalendarService is the calendar resource of the app API.
+type AppCalendarService struct{ c *Client }
+
+// 把本应用的一条日程放到相关人员的日历上，或取消它
+// 需要范围 `app.calendar:write`。English: puts one fact of the app (a session, an interview, a booked room) on the people's calendars as a projection, or cancels it.
+//
+// 每个应用的每个 `ref` 只有一条投影。`item` 是投影；省略或为 null 表示取消。`version` 是这次推送的版本，必须是正数，用来排序：比已应用的更旧的推送回答 `stale`，什么也不改。回答 `result` 是日历条目的 id，或 `stale`。
+func (s *AppCalendarService) Push(ctx context.Context, body *AppCalendarPush, opts ...CallOption) (*AppCalendarApplied, error) {
+	path := "/calendar/projections"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppCalendarApplied
 	var reqBody any
 	if body != nil {
 		reqBody = body
@@ -156,6 +457,177 @@ func (s *AppDirectoryService) Members(ctx context.Context) (*AppMembers, error) 
 	var ro requestOptions
 	var out AppMembers
 	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// AppDraftsService is the drafts resource of the app API.
+type AppDraftsService struct{ c *Client }
+
+// 放弃一个草稿项
+// 需要范围 `app.drafts:review`。English: drops one item.
+//
+// 只收页面会话：这里的“人”是令牌里的人，应用自己的令牌是 403 `forbidden`。返回 `{ok: true}`。
+func (s *AppDraftsService) Abandon(ctx context.Context, id string, item string, opts ...CallOption) (*AppDraftOk, error) {
+	path := "/drafts/" + url.PathEscape(id) + "/items/" + url.PathEscape(item) + "/abandon"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppDraftOk
+	if err := s.c.doApp(ctx, "POST", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 应用本人审阅过的草稿项
+// 需要范围 `app.drafts:review`。English: applies this app's items the person reviewed, with the pending items they depend on.
+//
+// 只收页面会话：这里的“人”是令牌里的人，应用自己的令牌是 403 `forbidden`。`items` 里每项是 `{id, revision, confirmed?}`，`revision` 必须是本人看到的版本。返回草稿的新状态和每一项的结果（`results` 按项 id 索引）。
+func (s *AppDraftsService) Apply(ctx context.Context, id string, body *AppDraftApplyRequest, opts ...CallOption) (*AppDraftApplyOutcome, error) {
+	path := "/drafts/" + url.PathEscape(id) + "/apply"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppDraftApplyOutcome
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 为一位成员起草一批变更，由本人确认后才生效
+// 需要范围 `app.drafts:write`。English: proposes changes with the app's own ops for a person to confirm, as the agent does.
+//
+// 正文是草稿服务自己的创建正文（`sessionId`、`turn`、`summary`、`items`）外加 `for`，即草稿属于的人。草稿是这个人的，由本应用代写（委托，作者是 `app:{应用 id}`）：本人在工作台或本应用的页面里审阅并应用；没有他们预先签下的策略，什么都不会自动生效。每个 `items[].app` 只能是本应用（省略时补上），否则 422。应用自己的令牌必须给 `for`（企业的在职成员；不是的一律 403 `forbidden`，不说明这个人是否存在）；页面会话的 `for` 省略或等于本人，给别人是 422。本应用十分钟内给同一个人最多起草 30 份，超过是 429 并带 `Retry-After`。应用凭证不因此获得这个人的任何权限：草稿只给本人审阅，委托方不能应用。草稿有待办项时，平台会通知本人“有 N 项变更等你确认”。返回 201 和草稿视图。
+func (s *AppDraftsService) Create(ctx context.Context, body *AppDraftCreateRequest, opts ...CallOption) (*AppDraftView, error) {
+	path := "/drafts"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppDraftView
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 读取一份草稿：本应用的项是完整的
+// 需要范围 `app.drafts:read`。English: one draft with this app's items in full (the review page).
+//
+// 只收页面会话：这里的“人”是令牌里的人，应用自己的令牌是 403 `forbidden`。`revalidate=1` 先把检查重跑一遍再回答。
+func (s *AppDraftsService) Get(ctx context.Context, id string, p *AppDraftsGetParams) (*AppDraftView, error) {
+	path := "/drafts/" + url.PathEscape(id)
+	q := url.Values{}
+	if p != nil {
+		if p.Revalidate != "" {
+			q.Set("revalidate", p.Revalidate)
+		}
+	}
+	var ro requestOptions
+	var out AppDraftView
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 列出当前人员涉及本应用的草稿
+// 需要范围 `app.drafts:read`。English: the person's drafts that have an item of this app.
+//
+// 只收页面会话：这里的“人”是令牌里的人，应用自己的令牌是 403 `forbidden`。返回 `{drafts}`，最多 50 条；每条里本应用的项是完整的，其他应用的项只有数量。
+func (s *AppDraftsService) List(ctx context.Context, p *AppDraftsListParams) (*AppDraftList, error) {
+	path := "/drafts"
+	q := url.Values{}
+	if p != nil {
+		if p.Session != "" {
+			q.Set("session", p.Session)
+		}
+		if p.Status != "" {
+			q.Set("status", p.Status)
+		}
+		if p.Target != "" {
+			q.Set("target", p.Target)
+		}
+	}
+	var ro requestOptions
+	var out AppDraftList
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 查一条记录是谁写的
+// 需要范围 `app.drafts:read`。English: who wrote a record of this app: a draft the person applied, or a policy they pre-signed.
+//
+// 只收页面会话：这里的“人”是令牌里的人，应用自己的令牌是 403 `forbidden`。`ref` 必填，是记录的 k3:// 引用。返回 `{provenance}`。
+func (s *AppDraftsService) Provenance(ctx context.Context, p *AppDraftsProvenanceParams) (*AppDraftProvenanceList, error) {
+	path := "/provenance"
+	q := url.Values{}
+	if p != nil {
+		if p.Ref != "" {
+			q.Set("ref", p.Ref)
+		}
+	}
+	var ro requestOptions
+	var out AppDraftProvenanceList
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 以记录现在的样子为基础继续这个草稿项
+// 需要范围 `app.drafts:review`。English: goes on from the record as it is now.
+//
+// 只收页面会话：这里的“人”是令牌里的人，应用自己的令牌是 403 `forbidden`。返回 `{item}`。
+func (s *AppDraftsService) Rebase(ctx context.Context, id string, item string, opts ...CallOption) (*AppDraftItemResponse, error) {
+	path := "/drafts/" + url.PathEscape(id) + "/items/" + url.PathEscape(item) + "/rebase"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppDraftItemResponse
+	if err := s.c.doApp(ctx, "POST", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 记下本人对一个草稿项的值和选择
+// 需要范围 `app.drafts:review`。English: the person's values and choices for one item.
+//
+// 只收页面会话：这里的“人”是令牌里的人，应用自己的令牌是 403 `forbidden`。`revision` 是本人看到的版本；`fields` 是他们填的值；`pick` 按字段说选哪个值（`base` 保持原样，某一轮则取那一轮的提议，空串取最新）。返回 `{item}`。
+func (s *AppDraftsService) Review(ctx context.Context, id string, item string, body *AppDraftItemEdit, opts ...CallOption) (*AppDraftItemResponse, error) {
+	path := "/drafts/" + url.PathEscape(id) + "/items/" + url.PathEscape(item)
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppDraftItemResponse
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "PATCH", path, q, reqBody, &out, ro); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -389,6 +861,28 @@ func (s *AppEntitlementsService) Refund(ctx context.Context, id string, body *Ap
 	return &out, nil
 }
 
+// 把本应用权益里的旧门店 id 换成组织里的门店
+// 需要范围 `app.entitlements:write`。English: rewrites a legacy store id to the organisation's store in the templates and grants the calling app owns, and in the redemptions of those grants.
+//
+// `scope` 里的 `store:<from>` 换成 `store:<to>`，这些权益的核销记录的地点 `from` 换成 `to`。只动调用应用自己发出的模板与权益（所有者由平台按调用方定，正文不能指定）。重复调用不再改变任何东西。活动关联旧门店记录时用它（ADR-0057）。
+func (s *AppEntitlementsService) RelinkStore(ctx context.Context, body *AppEntitlementStoreRelinkRequest, opts ...CallOption) (*map[string]any, error) {
+	path := "/entitlements/stores/relink"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out map[string]any
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // 预留一次使用（到时未确认自动释放）
 // 需要范围 `app.entitlements:write`。English: keeps one use aside until it is confirmed, cancelled or expired.
 //
@@ -467,6 +961,31 @@ func (s *AppEntitlementsService) VoidRedemption(ctx context.Context, id string, 
 		o(&ro)
 	}
 	var out AppEntitlementRedeemResult
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// AppErrorsService is the errors resource of the app API.
+type AppErrorsService struct{ c *Client }
+
+// 向开发者平台报告本应用的错误
+// 需要范围 `app.errors:report`。English: reports the app's own errors to its developer organisation (ADR-0130 H8).
+//
+// 平台在保存前脱敏：`message` 与 `frames` 里的值（引号里的内容、数字、邮箱、网址、令牌、`key=value` 的值，以及 `message` 里所有非 ASCII 的文字，如中文）换成占位符；想让开发者读得懂，就报 `code` + 固定的 `template`（应用代码里的常量，原文保留）+ `params`，`route` 里像值的段换成 `:id`，`code` 与 `kind` 只收标识符。开发者平台只看到脱敏后的样子，看不到企业；`params` 是消息引用的值，永远不进开发者视图，只在企业批准的限时诊断里（去掉密钥后）给开发者看。一次 1–50 条，回答 202。每个应用每分钟最多保存 120 条，超过的不保存。
+func (s *AppErrorsService) Report(ctx context.Context, body *AppErrorReport, opts ...CallOption) (*AppErrorReportAccepted, error) {
+	path := "/errors"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppErrorReportAccepted
 	var reqBody any
 	if body != nil {
 		reqBody = body
@@ -571,7 +1090,7 @@ func (s *AppLinksService) Resolve(ctx context.Context, p *AppLinksResolveParams)
 // 按当前人员的权限搜索另一个应用的记录链接
 // 需要范围 `app.links:read`。English: searches the records of another app as the caller sees them.
 //
-// `app` 必填，是要搜的应用。`q` 是文字查询（省略为最近的）。`limit` 默认 20，1 到 50，超出是 422。该应用在这个组织没有安装或没有开启时，`installed` 为 false 且 `items` 是 `[]`，选择器可以据此区分“没装”和“没找到”。
+// `app` 是要搜的应用；省略时搜这个组织已安装并开启的全部应用（每个应用最多 `limit` 条，`installed` 为 true）。`q` 是文字查询（省略为最近的）。`limit` 默认 20，1 到 50，超出是 422。指定的应用在这个组织没有安装或没有开启时，`installed` 为 false 且 `items` 是 `[]`，选择器可以据此区分“没装”和“没找到”。English: `app` omitted searches every installed app.
 func (s *AppLinksService) Search(ctx context.Context, p *AppLinksSearchParams) (*AppLinkSearch, error) {
 	path := "/links"
 	q := url.Values{}
@@ -589,6 +1108,873 @@ func (s *AppLinksService) Search(ctx context.Context, p *AppLinksSearchParams) (
 	var ro requestOptions
 	var out AppLinkSearch
 	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// AppModelsService is the models resource of the app API.
+type AppModelsService struct{ c *Client }
+
+// 用企业的服务模型起草文字
+// 需要范围 `app.models:use`。English: drafts text with the model the tenant's administrator chose for service scenes.
+//
+// 调用算调用者的：页面会话的人被屏蔽、企业的预算和限流都照常生效，用量按 `scene` 计。`scene` 是小写字母开头的字母、数字和下划线（最长 64），`system` 加 `user` 最多 256 KiB。图片走 `/models/read`。企业没有开放模型时是 503，正文里 code 为 model_off（不在 ErrorCode 里，按状态和这个字段判断）；预算或限流的拒绝保留模型路由器的状态和原话。
+func (s *AppModelsService) Complete(ctx context.Context, body *AppModelRequest, opts ...CallOption) (*AppModelText, error) {
+	path := "/models/complete"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppModelText
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 让企业的服务模型读文字加图片
+// 需要范围 `app.models:use`。English: reads a document with pictures with the service model.
+//
+// `images` 每张是 `{mime, data}`：`mime` 为 image/png、image/jpeg 或 image/webp，`data` 是 base64。整个请求最大 24 MiB。企业没有开放模型时是 503，正文里 code 为 model_off（不在 ErrorCode 里，按状态和这个字段判断）；预算或限流的拒绝保留模型路由器的状态和原话。
+func (s *AppModelsService) Read(ctx context.Context, body *AppModelRequest, opts ...CallOption) (*AppModelText, error) {
+	path := "/models/read"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppModelText
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 问企业有没有开放服务模型
+// 需要范围 `app.models:use`。English: whether a service model is on offer, whether speech is transcribed, and the model's name.
+//
+// 返回 `model`（有无模型）、`transcribe`（能否转写语音）、`serviceModel`（模型名，平台不说时省略）。
+func (s *AppModelsService) Status(ctx context.Context) (*AppModelStatus, error) {
+	path := "/models"
+	var q url.Values
+	var ro requestOptions
+	var out AppModelStatus
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// AppNotifyService is the notify resource of the app API.
+type AppNotifyService struct{ c *Client }
+
+// 以本应用的名义给企业成员发一条站内通知
+// 需要范围 `app.notify:send`。English: tells people of the tenant something in the platform's message centre, as the app (its name, a link into it); best effort.
+//
+// `users` 是企业成员的用户 id（空白项忽略，去掉后至少 1 个，最多 500 个），`title` 必填，`body` 是正文，`link` 只能是应用内的路由（以 `/` 开头）、`k3://` 引用，或本应用清单 `egress` 里声明的域名下的 `https://` 地址，其余 422。`class` 说明通知的性质，供推送到平台以外的渠道使用：`approval.task`、`approval.result`、`mention`，省略由渠道决定。只发给本企业的在职成员：其余的人数计入 `rejected`，不说明原因。同一个调用方（页面会话的人或应用本身）十分钟内最多通知 1000 人次，超过是 429 并带 `Retry-After`。回答 202，`accepted` 是收到通知的人数。
+func (s *AppNotifyService) Send(ctx context.Context, body *AppNotifyRequest, opts ...CallOption) (*AppNotifyAccepted, error) {
+	path := "/notify"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppNotifyAccepted
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// AppOptionsService is the options resource of the app API.
+type AppOptionsService struct{ c *Client }
+
+// 读取企业为本应用某个字段维护的选项列表
+// 需要范围 `app.options:read`。English: the list of choices the tenant keeps for a text field of the app.
+//
+// 企业从没保存过时，回答的是 `default` 给的默认值。返回 `{items}`。
+func (s *AppOptionsService) Get(ctx context.Context, list string, p *AppOptionsGetParams) (*AppOptionsList, error) {
+	path := "/options/" + url.PathEscape(list)
+	q := url.Values{}
+	if p != nil {
+		if p.Default != "" {
+			q.Set("default", p.Default)
+		}
+	}
+	var ro requestOptions
+	var out AppOptionsList
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 整体替换或追加一个选项列表
+// 需要范围 `app.options:write`。English: replaces the whole list (`items`), or adds one option (`add`).
+//
+// `items` 与 `add` 至少给一个。列表的声明（`title`、`maxLen`、`defaults`）每次随调用带上。带 `K3-Dry-Run: 1` 时只检查，不保存。返回改动前（`old`）和改动后（`now`）的列表。
+func (s *AppOptionsService) Put(ctx context.Context, list string, body *AppOptionsRequest, opts ...CallOption) (*AppOptionsSaved, error) {
+	path := "/options/" + url.PathEscape(list)
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppOptionsSaved
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "PUT", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// AppOutreachService is the outreach resource of the app API.
+type AppOutreachService struct{ c *Client }
+
+// 读取一条触达消息的状态
+// 需要范围 `app.outreach:read`。English: one message of the outreach log, with its state and, when it was not sent, the reason.
+//
+// 不存在是 404 `not_found`。
+func (s *AppOutreachService) GetMessage(ctx context.Context, id string) (*AppOutreachMessage, error) {
+	path := "/outreach/messages/" + url.PathEscape(id)
+	var q url.Values
+	var ro requestOptions
+	var out AppOutreachMessage
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 读取一个消息模板
+// 需要范围 `app.outreach:read`。English: one message template.
+//
+// 不存在是 404 `not_found`。
+func (s *AppOutreachService) GetTemplate(ctx context.Context, id string) (*AppOutreachTemplate, error) {
+	path := "/outreach/templates/" + url.PathEscape(id)
+	var q url.Values
+	var ro requestOptions
+	var out AppOutreachTemplate
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 列出触达渠道及其是否就绪
+// 需要范围 `app.outreach:read`。English: the tenant's outreach channels and whether each can send.
+//
+// 返回 `{items}`。渠道的密钥不会出现，只有 `secret.set` 和指纹。
+func (s *AppOutreachService) ListChannels(ctx context.Context) (*AppOutreachChannelList, error) {
+	path := "/outreach/channels"
+	var q url.Values
+	var ro requestOptions
+	var out AppOutreachChannelList
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 列出消息模板
+// 需要范围 `app.outreach:read`。English: the tenant's message templates.
+//
+// `channel` 只要这个渠道的模板；`archived=1` 连归档的也要。返回 `{items}`。
+func (s *AppOutreachService) ListTemplates(ctx context.Context, p *AppOutreachListTemplatesParams) (*AppOutreachTemplateList, error) {
+	path := "/outreach/templates"
+	q := url.Values{}
+	if p != nil {
+		if p.Archived != "" {
+			q.Set("archived", p.Archived)
+		}
+		if p.Channel != "" {
+			q.Set("channel", p.Channel)
+		}
+	}
+	var ro requestOptions
+	var out AppOutreachTemplateList
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 向一位客户排一条触达消息
+// 需要范围 `app.outreach:send`。English: queues a message to a customer by a template of the tenant's; the platform decides at send time whether it may go.
+//
+// 应用不发送，也看不到手机号：同意、退订、免打扰、频次和企业上限都由平台在发送时判断。`key` 是这条消息的幂等键，必填；同键再来不会加新消息，回 200 和当初那条的 `id`（`existing` 为 true）；新排上的回 202。`purpose` 是 `service`（服务通知）或 `marketing`（营销）。
+func (s *AppOutreachService) Send(ctx context.Context, body *AppOutreachSendRequest, opts ...CallOption) (*AppOutreachQueued, error) {
+	path := "/outreach/send"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppOutreachQueued
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// AppPayService is the pay resource of the app API.
+type AppPayService struct{ c *Client }
+
+// 关闭一张还没付的收款单
+// 需要范围 `app.pay:write`。English: closes an unpaid order.
+//
+// 已付的单不能关（用退款），那是 409 `conflict`。返回关闭后的收款单。
+func (s *AppPayService) Cancel(ctx context.Context, id string, opts ...CallOption) (*AppPayOrder, error) {
+	path := "/pay/orders/" + url.PathEscape(id) + "/cancel"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppPayOrder
+	if err := s.c.doApp(ctx, "POST", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 经企业的收款账户向客户发起一笔收款
+// 需要范围 `app.pay:write`。English: asks the tenant's customer to pay through the tenant's own Alipay or WeChat Pay account.
+//
+// 本应用是这张收款单的来源应用，只看得到自己的收款单；款项到账后，平台把结果送到本应用声明的 `event:payment` 服务。`key` 是这笔收款的幂等键：同一个业务动作只问一次，同键再来回答第一张单；没写时用请求头 `Idempotency-Key`，都没有是 422。这个键属于企业，别的应用用过的键是 409 `conflict`。`amountCents` 是整数分，`ttlSeconds` 是多久不付就失效。返回 201、收款单和客户的付款页 `link`；JSAPI 交易另有 `payParams`（交给微信的已签名参数，JSON 文本）。
+func (s *AppPayService) Create(ctx context.Context, body *AppPayCreateRequest, opts ...CallOption) (*AppPayOrder, error) {
+	path := "/pay/orders"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppPayOrder
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 读取本应用的一张收款单
+// 需要范围 `app.pay:read`。English: one order of the app.
+//
+// 不存在或不是本应用的是 404 `not_found`。
+func (s *AppPayService) Get(ctx context.Context, id string) (*AppPayOrder, error) {
+	path := "/pay/orders/" + url.PathEscape(id)
+	var q url.Values
+	var ro requestOptions
+	var out AppPayOrder
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 列出一张收款单的退款
+// 需要范围 `app.pay:read`。English: the refunds of an order.
+//
+// 返回 `{items}`。
+func (s *AppPayService) ListRefunds(ctx context.Context, id string) (*AppPayRefundList, error) {
+	path := "/pay/orders/" + url.PathEscape(id) + "/refunds"
+	var q url.Values
+	var ro requestOptions
+	var out AppPayRefundList
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 给一张已付的收款单退款
+// 需要范围 `app.pay:write`。English: refunds a paid order, in part or what is left.
+//
+// `amountCents` 为 0 或省略是退剩下的全部。`key` 是这笔退款的幂等键，没写时用请求头 `Idempotency-Key`，都没有是 422。返回 201 和退款。
+func (s *AppPayService) Refund(ctx context.Context, id string, body *AppPayRefundRequest, opts ...CallOption) (*AppPayRefund, error) {
+	path := "/pay/orders/" + url.PathEscape(id) + "/refunds"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppPayRefund
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// AppRealtimeService is the realtime resource of the app API.
+type AppRealtimeService struct{ c *Client }
+
+// 创建一份实时文档
+// 需要范围 `app.realtime:write`。English: creates a real-time document of one of the kinds the app declares in `realtime.docs[]`, and registers it as an instance of the kind's resource type.
+//
+// `kind` 必须是本应用清单 `realtime.docs[]` 里声明的种类，否则 422 `invalid`。`resource` 是它所属资源的 id（资源类型由种类声明），文档的权限就是调用者在这个资源上的级别（见 `resources` 接口）。`id` 可省略，平台取 `rd_…`；自己取的 id 只能用字母、数字、`-` 和 `_`，最多 64 字符；已有同 id 的文档是 409 `conflict`。
+// 初始内容按种类的编码给：`yjs-v1` 给 `doc`（ProseMirror 文档，省略是空文档），`ymap-v1` 给 `data`（JSON 对象，必填），`board-v1` 给 `board`（看板，必填），Office 编码给 `state`（base64，由读过文件的浏览器生成，必填）。正文最大 8 MiB。
+// 返回 201 和文档头。页面会话只能用自己有权的资源；应用自己的令牌不受级别限制（文档归应用）。
+func (s *AppRealtimeService) CreateDoc(ctx context.Context, body *AppRealtimeDocCreate, opts ...CallOption) (*AppRealtimeDocHead, error) {
+	path := "/realtime/docs"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppRealtimeDocHead
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 删除一份实时文档
+// 需要范围 `app.realtime:write`。English: deletes the document, its log and its projection, and closes the open sync connections.
+//
+// 页面会话需要对所属资源有编辑级别以上，否则 404 `not_found`。资源的登记（访问名单）不随文档删除，由应用用 `DELETE /access/{type}/{id}` 另行删除。返回 204。
+func (s *AppRealtimeService) DeleteDoc(ctx context.Context, id string, opts ...CallOption) (*map[string]any, error) {
+	path := "/realtime/docs/" + url.PathEscape(id)
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out map[string]any
+	if err := s.c.doApp(ctx, "DELETE", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 由服务端改一份实时文档
+// 需要范围 `app.realtime:write`。English: applies one server-side edit to the document as the caller, returns the sequence it landed at and the projection after it.
+//
+// `edit` 里写且只写一种改动，按顺序取第一个出现的：`replace`（整份 ProseMirror 文档）、`append`（追加的块）、`title`、`data`（`ymap-v1`：整个对象）、`board`（`board-v1`：整个看板）。什么也没写是 422 `invalid`。`origin` 是 `draft`、`restore` 或 `system`（默认 `system`），说明这次改动的来历。`dry` 为 true 只预演：回答和真做一样，什么也不留下。
+// 声明了 `guard` 的种类，写入前会先问应用（清单 `providers.realtimeGuard`），应用拒绝是 422 `invalid`。需要编辑级别；代理（agent）只读，是 422 `invalid`。正文最大 8 MiB。
+func (s *AppRealtimeService) EditDoc(ctx context.Context, id string, body *AppRealtimeEditRequest, opts ...CallOption) (*AppRealtimeEditResult, error) {
+	path := "/realtime/docs/" + url.PathEscape(id) + "/edits"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppRealtimeEditResult
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 读一份实时文档的头信息
+// 需要范围 `app.realtime:read`。English: the header of one document: codec, epoch, schema version, the sequence of the log head and of the last projection, and its resource.
+//
+// 页面会话需要对所属资源至少有查看级别，没有时一律是 404 `not_found`（不暴露文档是否存在）。别的应用的文档、平台内置应用的文档也是 404。
+func (s *AppRealtimeService) GetDoc(ctx context.Context, id string) (*AppRealtimeDocHead, error) {
+	path := "/realtime/docs/" + url.PathEscape(id)
+	var q url.Values
+	var ro requestOptions
+	var out AppRealtimeDocHead
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 读一份实时文档现在的投影
+// 需要范围 `app.realtime:read`。English: the projection now: title, plain text, word count, references, and the content in the codec's form.
+//
+// 内容的形状随编码：`yjs-v1` 与 Office 编码给 `doc`（ProseMirror JSON），`ymap-v1` 给 `data`，`board-v1` 给 `board`。需要查看级别，没有时 404 `not_found`。投影完成后平台会把事件 `realtime.doc.projected` 送给应用（见 webhooks）。
+func (s *AppRealtimeService) GetProjection(ctx context.Context, id string) (*AppRealtimeProjection, error) {
+	path := "/realtime/docs/" + url.PathEscape(id) + "/projection"
+	var q url.Values
+	var ro requestOptions
+	var out AppRealtimeProjection
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 让一份实时文档从新的内容重新开始（换纪元）
+// 需要范围 `app.realtime:write`。English: starts the document over from the given content; epoch + 1, so open editors reconnect from the new state. Use it for restore and import.
+//
+// 只有 ProseMirror 文档（`yjs-v1`）能这样重开，`doc` 省略是空文档；其他编码是 422 `invalid`。需要编辑级别。
+func (s *AppRealtimeService) RestartDoc(ctx context.Context, id string, body *AppRealtimeEpochRequest, opts ...CallOption) (*AppRealtimeEpoch, error) {
+	path := "/realtime/docs/" + url.PathEscape(id) + "/epoch"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppRealtimeEpoch
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// AppResourcesService is the resources resource of the app API.
+type AppResourcesService struct{ c *Client }
+
+// 批量查一个人对多个资源的级别
+// 需要范围 `app.resources:read`。English: the level of a person on each of up to 500 resources of one type (replaces a visibility SQL join).
+//
+// `ids` 1 到 500 个。`level` 可省略；写了就另外给出每个 id 是否达到了这个级别（`allowed`）。页面会话查的是自己；应用自己的令牌必须在 `user` 写明查谁，否则 422 `invalid`。未登记的资源，级别是空字符串。单次读取要鉴权时用它，列表过滤用 `GET …/visible`。
+//
+// 树类型（清单里带 `parent` 的节点类型，和被它当作 parent 的根类型）：平台保存根和节点、它们的显式名单和状态，并把每个根和节点的有效名单存成不可变、去重的集合。节点继承父节点（顶层继承根）的名单再加上自己的条目；`inherit` 为 false 的节点只看自己的条目。每个 id 的级别是名单给出的级别经状态限制后的结果，`reasons` 给出原因：节点在回收站（trashed）时管理级别以下没有权限（原因 trashed）；根归档（archived）时最多 comment（原因 archived）；根只读发布版（publishOnly）时 edit 以下和智能体读已发布版本（原因 published_only，级别不变）。智能体最多 comment（正文 `agent: true`）。企业管理员绕过名单，等于处处 manage，同样受状态限制。不存在的根或节点级别为空字符串。English: on a tree type each id's level is the lists' level clamped by the states (trashed: nothing below manage; archived: at most comment; publish-only: read as published below edit and for an agent), with the reason.
+func (s *AppResourcesService) Check(ctx context.Context, typ string, body *AppResourceCheckRequest, opts ...CallOption) (*AppResourceCheckAnswer, error) {
+	path := "/access/" + url.PathEscape(typ) + "/check"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppResourceCheckAnswer
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 删除一个资源的登记（连同名单和申请）
+// 需要范围 `app.resources:write`。English: drops the resource's row: its list and its requests.
+//
+// 页面会话需要对这个资源有管理级别，否则 404 `not_found`；应用自己的令牌不受级别限制。返回 204。
+//
+// 树类型：只收应用自己的令牌（页面会话是 403 `forbidden`）。删除节点只删这一个（应用写出整棵子树的每个节点），删除根连同它下面的全部节点和名单。English: on a tree type only the app's token removes; a node is removed alone (the app names the whole subtree), a root with every node under it.
+func (s *AppResourcesService) Drop(ctx context.Context, typ string, id string, opts ...CallOption) (*map[string]any, error) {
+	path := "/access/" + url.PathEscape(typ) + "/" + url.PathEscape(id)
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out map[string]any
+	if err := s.c.doApp(ctx, "DELETE", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 读一个资源的访问名单（按调用者能看到的）
+// 需要范围 `app.resources:read`。English: the list of one resource as the caller may see it: owner, general access, switches, grants, the caller's level.
+//
+// 正文与规则同平台内置应用的 `/api/access/{type}/{id}…`（同一套访问内核：规则、审计、通知都一样）。只收页面会话：应用自己的令牌是 403 `forbidden`（分享是人做的事）。类型不是本应用声明的，或资源没登记，一律 404 `not_found`。名单变了以后，平台把事件 `access.changed` 送给应用（见 webhooks）。
+//
+// 调用者对资源没有查看级别时是 404 `not_found`，要申请访问见 `POST …/requests`。
+//
+// 树类型：返回 `AccessTreeView`：显式名单 `entries`、根或节点指向的集合 `set`、调用者经状态限制后的级别 `level` 和原因 `reason`。页面会话没有查看级别时 404 `not_found`；应用自己的令牌可带 `user` 查某人的级别（不带就只有名单和集合），根或节点不存在时 404 `not_found`。English: on a tree type the answer is the explicit entries, the set and the caller's level after the states.
+func (s *AppResourcesService) Get(ctx context.Context, typ string, id string, p *AppResourcesGetParams) (*AppResourceAccessView, error) {
+	path := "/access/" + url.PathEscape(typ) + "/" + url.PathEscape(id)
+	q := url.Values{}
+	if p != nil {
+		if p.Agent != nil {
+			q.Set("agent", strconv.FormatBool(*p.Agent))
+		}
+		if p.User != "" {
+			q.Set("user", p.User)
+		}
+	}
+	var ro requestOptions
+	var out AppResourceAccessView
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 读调用者自己对一个资源的申请
+// 需要范围 `app.resources:read`。English: the caller's own requests on the resource, newest first, at most 100.
+//
+// 正文与规则同平台内置应用的 `/api/access/{type}/{id}…`（同一套访问内核：规则、审计、通知都一样）。只收页面会话：应用自己的令牌是 403 `forbidden`（分享是人做的事）。类型不是本应用声明的，或资源没登记，一律 404 `not_found`。名单变了以后，平台把事件 `access.changed` 送给应用（见 webhooks）。
+func (s *AppResourcesService) ListRequests(ctx context.Context, typ string, id string) (*AppResourceRequestList, error) {
+	path := "/access/" + url.PathEscape(typ) + "/" + url.PathEscape(id) + "/requests"
+	var q url.Values
+	var ro requestOptions
+	var out AppResourceRequestList
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 一个人在树模型每个集合里的级别
+// 需要范围 `app.resources:read`。English: the person's level in every set of the tree model that names them, a page at a time (the app filters its own lists by the set id it keeps for each node).
+//
+// `type` 是本应用的一个树类型，或 `*`（集合对所有类型是同一份）。页面会话查的是自己；应用自己的令牌必须带 `user`，否则 422 `invalid`。一页最多 10000 个集合，`truncated` 为 true 时用 `next` 作 `after` 再取。企业管理员绕过名单，集合里不体现：`bypass` 为 true 时应用把此人当作处处 manage（再受状态限制）。
+func (s *AppResourcesService) Mine(ctx context.Context, typ string, p *AppResourcesMineParams) (*AppAccessMine, error) {
+	path := "/access/" + url.PathEscape(typ) + "/mine"
+	q := url.Values{}
+	if p != nil {
+		if p.After != "" {
+			q.Set("after", p.After)
+		}
+		if p.User != "" {
+			q.Set("user", p.User)
+		}
+	}
+	var ro requestOptions
+	var out AppAccessMine
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 用应用自己的树校正平台里一个根下的节点
+// 需要范围 `app.resources:write`。English: makes the kernel's nodes of one root what the app's tree says (an app outside the platform writes the kernel first and its own rows after; a periodic reconcile repairs a failure between the two).
+//
+// 只用于树类型的根类型（`id` 是根），只收应用自己的令牌（页面会话是 403 `forbidden`）。`spec` 是根的状态，`nodes` 是这个根下应用的全部节点（`inherit` 省略为 true）：没列出的节点被删除，其余的按位置、继承和回收站状态写入。显式名单不校正（只存在平台里）。返回改了几个节点；大于 0 时记审计 access.tree.reconcile。
+func (s *AppResourcesService) Reconcile(ctx context.Context, typ string, id string, body *AppAccessReconcile, opts ...CallOption) (*AppAccessReconciled, error) {
+	path := "/access/" + url.PathEscape(typ) + "/" + url.PathEscape(id) + "/reconcile"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppAccessReconciled
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 登记一个资源（写下它的所有者）
+// 需要范围 `app.resources:write`。English: registers a resource of a declared type with its owner; idempotent.
+//
+// `type` 必须是本应用清单 `resources[]` 里声明的类型（以 `{本应用 id}.` 开头），否则 404 `not_found`。页面会话登记的资源，所有者就是这个人；应用自己的令牌必须在正文里写 `owner`。正文可省略。重复登记同一个资源不会出错。登记后文档、记录的名单、通用访问、开关都由平台保存。
+//
+// 树类型（清单里带 `parent` 的类型和被它当作 parent 的类型，规则见 `POST …/check`）：正文是 `AccessTreePut`。根类型写 `archived`、`publishOnly`；节点类型写 `root`（在根的顶层时必填，有 `parent` 时以父节点的根为准）、`parent`、`inherit`（省略为 true）、`trashed`。移到别的父节点或别的根时整棵子树跟着走，平台重新计算受影响节点的集合。只收应用自己的令牌（页面会话是 403 `forbidden`：移动会改变节点继承的名单，树的形状由应用按自己的规则维护）。返回 `AccessTreeChanged`，`changed` 是集合变了的节点 id 到新集合 id。一次改动最多重新计算 5000 个节点（整个根 20000 个），超过是 422 `invalid`。English: on a tree type the body puts a root's state or a node's place and state (idempotent, the app's token only); the answer lists the nodes whose set changed.
+func (s *AppResourcesService) Register(ctx context.Context, typ string, id string, body *AppResourceRegisterRequest, opts ...CallOption) (*AppResourceRegistered, error) {
+	path := "/access/" + url.PathEscape(typ) + "/" + url.PathEscape(id)
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppResourceRegistered
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 整体替换树类型一个根或节点的显式名单
+// 需要范围 `app.resources:write`。English: replaces every explicit entry of a root or node of a tree type and recomputes the sets that changes.
+//
+// 只用于树类型（平铺类型是 404 `not_found`）。`entries` 是全部条目：`kind` 为 `user`、`unit`（部门，含下级）、`role`、`everyone`（`principal` 为空字符串），`level` 为 `view`、`comment`、`edit`、`manage`，`name` 是显示名的快照。应用自己的令牌可以调用，并可用 `by` 写明替谁改；页面会话需要管理级别（名单给出的级别），看不到是 404 `not_found`，不能管理是 403 `forbidden`。返回 `AccessTreeChanged`；平台把事件 `access.changed` 送给应用，并记审计 access.tree.entries。
+func (s *AppResourcesService) ReplaceEntries(ctx context.Context, typ string, id string, body *AppAccessTreeEntries, opts ...CallOption) (*AppAccessTreeChanged, error) {
+	path := "/access/" + url.PathEscape(typ) + "/" + url.PathEscape(id) + "/grants"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppAccessTreeChanged
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "PUT", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 为自己申请访问一个资源
+// 需要范围 `app.resources:write`。English: files a request for access (or a higher level) on the resource, as the caller; notifies the people who decide.
+//
+// 正文与规则同平台内置应用的 `/api/access/{type}/{id}…`（同一套访问内核：规则、审计、通知都一样）。只收页面会话：应用自己的令牌是 403 `forbidden`（分享是人做的事）。类型不是本应用声明的，或资源没登记，一律 404 `not_found`。名单变了以后，平台把事件 `access.changed` 送给应用（见 webhooks）。
+//
+// 类型没有开放申请，或调用者已经有这个级别，是 409 `conflict`；被拒绝后 24 小时内不能再申请（`retryAfter`）。`level` 省略是 `view`。
+func (s *AppResourcesService) RequestAccess(ctx context.Context, typ string, id string, body *AppResourceAskRequest, opts ...CallOption) (*AppResourceRequest, error) {
+	path := "/access/" + url.PathEscape(typ) + "/" + url.PathEscape(id) + "/requests"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppResourceRequest
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 撤销一条分享
+// 需要范围 `app.resources:write`。English: removes one grant.
+//
+// 正文与规则同平台内置应用的 `/api/access/{type}/{id}…`（同一套访问内核：规则、审计、通知都一样）。只收页面会话：应用自己的令牌是 403 `forbidden`（分享是人做的事）。类型不是本应用声明的，或资源没登记，一律 404 `not_found`。名单变了以后，平台把事件 `access.changed` 送给应用（见 webhooks）。
+//
+// 对象是 `everyone` 的分享，`principal` 写 `-`。
+//
+// 树类型：从根或节点的显式名单删掉一条（没有这条是 404 `not_found`），权限规则同 `POST …/grants`，返回 `AccessTreeChanged`。English: on a tree type removes one explicit entry.
+func (s *AppResourcesService) Revoke(ctx context.Context, typ string, id string, kind string, principal string, opts ...CallOption) (*AppResourceOk, error) {
+	path := "/access/" + url.PathEscape(typ) + "/" + url.PathEscape(id) + "/grants/" + url.PathEscape(kind) + "/" + url.PathEscape(principal)
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppResourceOk
+	if err := s.c.doApp(ctx, "DELETE", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 设置通用访问（企业内知道链接的人能做什么）
+// 需要范围 `app.resources:write`。English: sets the general access of the resource.
+//
+// 正文与规则同平台内置应用的 `/api/access/{type}/{id}…`（同一套访问内核：规则、审计、通知都一样）。只收页面会话：应用自己的令牌是 403 `forbidden`（分享是人做的事）。类型不是本应用声明的，或资源没登记，一律 404 `not_found`。名单变了以后，平台把事件 `access.changed` 送给应用（见 webhooks）。
+//
+// `level` 是空字符串（只有名单上的人）、`view`、`comment` 或 `edit`；类型不开放评论时不能设 `comment`。
+func (s *AppResourcesService) SetGeneral(ctx context.Context, typ string, id string, body *AppResourceGeneralRequest, opts ...CallOption) (*AppResourceGeneral, error) {
+	path := "/access/" + url.PathEscape(typ) + "/" + url.PathEscape(id) + "/general"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppResourceGeneral
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "PUT", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 设置资源的开关
+// 需要范围 `app.resources:write`。English: sets the switches the type declares (`resources[].switches`), e.g. `explore`, and returns the list.
+//
+// 正文与规则同平台内置应用的 `/api/access/{type}/{id}…`（同一套访问内核：规则、审计、通知都一样）。只收页面会话：应用自己的令牌是 403 `forbidden`（分享是人做的事）。类型不是本应用声明的，或资源没登记，一律 404 `not_found`。名单变了以后，平台把事件 `access.changed` 送给应用（见 webhooks）。
+//
+// 正文是 `{开关名: true|false}`，只能写类型声明过的开关。
+func (s *AppResourcesService) SetToggles(ctx context.Context, typ string, id string, body *AppResourceToggles, opts ...CallOption) (*AppResourceAccessView, error) {
+	path := "/access/" + url.PathEscape(typ) + "/" + url.PathEscape(id) + "/toggles"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppResourceAccessView
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "PUT", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 分享给一个人、部门、角色或所有人
+// 需要范围 `app.resources:write`。English: adds or changes one grant on the resource.
+//
+// 正文与规则同平台内置应用的 `/api/access/{type}/{id}…`（同一套访问内核：规则、审计、通知都一样）。只收页面会话：应用自己的令牌是 403 `forbidden`（分享是人做的事）。类型不是本应用声明的，或资源没登记，一律 404 `not_found`。名单变了以后，平台把事件 `access.changed` 送给应用（见 webhooks）。
+//
+// `kind` 是 `user`、`unit`（部门）、`role`、`everyone`（所有人）之一，`level` 是 `view`、`comment`、`edit` 或 `manage`，`expiresAt` 省略为不过期。调用者需要有分享的权力（管理级别，或类型开着允许分享的开关）。给人的分享会通知对方。
+//
+// 树类型：在根或节点的显式名单上加一条或改一条（同一 `kind` + `principal` 只有一条），正文同上但没有 `expiresAt`。应用自己的令牌可以调用；页面会话需要对这个根或节点有管理级别（名单给出的级别，不看状态），看不到是 404 `not_found`，看得到但不能管理是 403 `forbidden`。返回 `AccessTreeChanged`。审计动作 access.tree.entries。English: on a tree type adds or changes one explicit entry; a person needs manage.
+func (s *AppResourcesService) Share(ctx context.Context, typ string, id string, body *AppResourceShareRequest, opts ...CallOption) (*AppResourceGrant, error) {
+	path := "/access/" + url.PathEscape(typ) + "/" + url.PathEscape(id) + "/grants"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppResourceGrant
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 转让资源的所有权
+// 需要范围 `app.resources:write`。English: transfers the owner of the resource to another person; notifies them.
+//
+// 正文与规则同平台内置应用的 `/api/access/{type}/{id}…`（同一套访问内核：规则、审计、通知都一样）。只收页面会话：应用自己的令牌是 403 `forbidden`（分享是人做的事）。类型不是本应用声明的，或资源没登记，一律 404 `not_found`。名单变了以后，平台把事件 `access.changed` 送给应用（见 webhooks）。
+//
+// 只有所有者（或管理员）能转让。`to` 必填，`name` 是对方的显示名。
+func (s *AppResourcesService) Transfer(ctx context.Context, typ string, id string, body *AppResourceTransferRequest, opts ...CallOption) (*AppResourceOwner, error) {
+	path := "/access/" + url.PathEscape(typ) + "/" + url.PathEscape(id) + "/owner"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppResourceOwner
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 分页列出一个人能看到的资源 id
+// 需要范围 `app.resources:read`。English: the ids of the type's resources the person may see at least at the level, in id order, paged by cursor.
+//
+// `level` 默认 `view`，`limit` 默认 200、最多 1000，`cursor` 用上一页的 `next`。页面会话列的是自己；应用自己的令牌必须带 `user`，否则 422 `invalid`。应用若维护自己的可见性镜像，用它刷新（再配合事件 `access.changed`），最终一致；单次读取仍应用 `check`。
+//
+// 树类型：列出这个类型（根类型列根、节点类型列节点）里此人经状态限制后达到 `level` 的 id，按 id 分页；企业管理员看到全部（仍受状态限制）。English: on a tree type the nodes (or roots) the person sees at the level after the states.
+func (s *AppResourcesService) Visible(ctx context.Context, typ string, p *AppResourcesVisibleParams) (*AppResourceVisible, error) {
+	path := "/access/" + url.PathEscape(typ) + "/visible"
+	q := url.Values{}
+	if p != nil {
+		if p.Agent != nil {
+			q.Set("agent", strconv.FormatBool(*p.Agent))
+		}
+		if p.Cursor != "" {
+			q.Set("cursor", p.Cursor)
+		}
+		if p.Level != "" {
+			q.Set("level", p.Level)
+		}
+		if p.Limit != nil {
+			q.Set("limit", strconv.Itoa(*p.Limit))
+		}
+		if p.User != "" {
+			q.Set("user", p.User)
+		}
+	}
+	var ro requestOptions
+	var out AppResourceVisible
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// AppSecretsService is the secrets resource of the app API.
+type AppSecretsService struct{ c *Client }
+
+// 用这个主体的钥匙解密本应用保存的密文
+// 需要范围 `app.secrets:use`。English: decrypts a ciphertext of one subject of the calling app; the answer is not cached (Cache-Control: no-store).
+//
+// `subject` 同加密时一样。`ciphertext` 是 base64，正文最多 64 KiB。钥匙已销毁，或密文不是这个主体的，都是 409 `conflict`，不说是哪一种。回答带 `Cache-Control: no-store`。解密的回答不为 `Idempotency-Key` 保存（带了也忽略，明文不留在平台）：它不改变任何东西，重试就是再问一次。
+func (s *AppSecretsService) Decrypt(ctx context.Context, body *AppSecretDecryptRequest, opts ...CallOption) (*AppSecretPlaintext, error) {
+	path := "/secrets/decrypt"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppSecretPlaintext
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 用这个主体的钥匙加密本应用的一段个人数据
+// 需要范围 `app.secrets:use`。English: encrypts personal data under the key of one subject of the calling app.
+//
+// `subject` 是本应用自己的 `<种类>:<id>`（种类是小写字母、数字和 -，以字母开头，最多 40 字符；id 最多 200 字符），否则 422 `invalid`。平台把它归到本应用和令牌的组织下，应用碰不到别的应用、别的组织的钥匙。`plaintext` 是 base64。正文最多 64 KiB（明文约 48 KiB），超出是 413 `payload_too_large`。返回的 `ciphertext`（base64）由应用自己保存。平台没有密钥库时是 503。
+func (s *AppSecretsService) Encrypt(ctx context.Context, body *AppSecretEncryptRequest, opts ...CallOption) (*AppSecretCiphertext, error) {
+	path := "/secrets/encrypt"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppSecretCiphertext
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 永久销毁这个主体的钥匙（它的密文从此解不开）
+// 需要范围 `app.secrets:use`。English: destroys the key of one subject of the calling app for good; its ciphertexts can no longer be decrypted.
+//
+// `subject` 同加密时一样。销毁不能撤回；之后解密这个主体的密文是 409 `conflict`。成功回答 204，没有正文。
+func (s *AppSecretsService) Shred(ctx context.Context, body *AppSecretShredRequest, opts ...CallOption) (*map[string]any, error) {
+	path := "/secrets/shred"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out map[string]any
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -614,6 +2000,54 @@ func (s *AppServicesService) Call(ctx context.Context, owner string, name string
 		reqBody = body
 	}
 	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// AppSitesService is the sites resource of the app API.
+type AppSitesService struct{ c *Client }
+
+// 读企业站点的名称、状态和一段日期里的访问量
+// 需要范围 `app.sites:read`。English: the name, state and request count of the tenant's sites, one answer per request, in order.
+//
+// `requests` 最多 200 条，超出是 422。每条问一个站点从 `from` 那天到 `to` 那天（省略：到今天）的访问量。不存在的站点回答空名字、0 次访问、没有 `state`。平台没有接上站点时是 503。
+func (s *AppSitesService) Summaries(ctx context.Context, body *AppSiteSummariesRequest, opts ...CallOption) (*AppSiteSummaries, error) {
+	path := "/sites/summaries"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppSiteSummaries
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// AppStoresService is the stores resource of the app API.
+type AppStoresService struct{ c *Client }
+
+// 列出组织里的门店，或某人所在、所管的门店
+// 需要范围 `app.stores:read`。English: every store of the tenant in the tree's order, closed ones included; with `of`, the stores that person works at or manages.
+//
+// 省略 `of`：组织的全部门店（含已关闭的），按组织树的顺序。`of` 是人员的 subject：他所属或被任命的每个部门及其下面的门店（店员是自己的店，任命在大区的经理是大区下的每家店）。门店由平台维护，应用只读，用 `id`（部门 id）引用。平台没有接上门店时是 503。
+func (s *AppStoresService) List(ctx context.Context, p *AppStoresListParams) (*AppStoreList, error) {
+	path := "/stores"
+	q := url.Values{}
+	if p != nil {
+		if p.Of != "" {
+			q.Set("of", p.Of)
+		}
+	}
+	var ro requestOptions
+	var out AppStoreList
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
 		return nil, err
 	}
 	return &out, nil

@@ -5,30 +5,60 @@ package raise
 // AppAPI is the app API (/app/v1): what an installed app asks of the platform. Client.App holds it.
 type AppAPI struct {
 	Access        *AppAccessService
+	Approvals     *AppApprovalsService
 	Audit         *AppAuditService
+	Blobs         *AppBlobsService
+	Calendar      *AppCalendarService
 	Customers     *AppCustomersService
 	Directory     *AppDirectoryService
+	Drafts        *AppDraftsService
 	Entitlements  *AppEntitlementsService
+	Errors        *AppErrorsService
 	Events        *AppEventsService
 	Installations *AppInstallationsService
 	Ledger        *AppLedgerService
 	Links         *AppLinksService
+	Models        *AppModelsService
+	Notify        *AppNotifyService
+	Options       *AppOptionsService
+	Outreach      *AppOutreachService
+	Pay           *AppPayService
+	Realtime      *AppRealtimeService
+	Resources     *AppResourcesService
+	Secrets       *AppSecretsService
 	Services      *AppServicesService
+	Sites         *AppSitesService
+	Stores        *AppStoresService
 	Visitors      *AppVisitorsService
 }
 
 func newAppAPI(c *Client) *AppAPI {
 	return &AppAPI{
 		Access:        &AppAccessService{c: c},
+		Approvals:     &AppApprovalsService{c: c},
 		Audit:         &AppAuditService{c: c},
+		Blobs:         &AppBlobsService{c: c},
+		Calendar:      &AppCalendarService{c: c},
 		Customers:     &AppCustomersService{c: c},
 		Directory:     &AppDirectoryService{c: c},
+		Drafts:        &AppDraftsService{c: c},
 		Entitlements:  &AppEntitlementsService{c: c},
+		Errors:        &AppErrorsService{c: c},
 		Events:        &AppEventsService{c: c},
 		Installations: &AppInstallationsService{c: c},
 		Ledger:        &AppLedgerService{c: c},
 		Links:         &AppLinksService{c: c},
+		Models:        &AppModelsService{c: c},
+		Notify:        &AppNotifyService{c: c},
+		Options:       &AppOptionsService{c: c},
+		Outreach:      &AppOutreachService{c: c},
+		Pay:           &AppPayService{c: c},
+		Realtime:      &AppRealtimeService{c: c},
+		Resources:     &AppResourcesService{c: c},
+		Secrets:       &AppSecretsService{c: c},
 		Services:      &AppServicesService{c: c},
+		Sites:         &AppSitesService{c: c},
+		Stores:        &AppStoresService{c: c},
 		Visitors:      &AppVisitorsService{c: c},
 	}
 }
