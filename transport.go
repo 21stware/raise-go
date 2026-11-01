@@ -95,6 +95,9 @@ func (c *Client) roundTrip(ctx context.Context, method, path string, query url.V
 	if payload != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	for k, v := range ro.headers {
+		req.Header.Set(k, v)
+	}
 	if ro.idempotencyKey != "" {
 		req.Header.Set("Idempotency-Key", ro.idempotencyKey)
 	}

@@ -38,10 +38,48 @@ type AppBlobsListParams struct {
 	Prefix string
 }
 
+// AppCustomersFindParams is the query string of Find.
+type AppCustomersFindParams struct {
+	// 身份的种类
+	Kind string
+	// 身份的值
+	Value string
+}
+
+// AppCustomersListParams is the query string of List.
+type AppCustomersListParams struct {
+	// 只留下有合并建议的客户
+	Hint *bool
+	// 一页多少条
+	Limit *int
+	// 跳过多少条
+	Offset *int
+	// 负责人（员工 subject）
+	Owner string
+	// 按姓名或身份搜索
+	Q string
+	// 来源应用
+	Source string
+	// 阶段
+	Stage string
+	// 标签 id
+	Tag string
+	// 只留下企业微信待关联的客户
+	WecomPending *bool
+}
+
 // AppCustomersResolveParams is the query string of Resolve.
 type AppCustomersResolveParams struct {
 	// 传 1 时只预演，不写入
 	DryRun string
+}
+
+// AppCustomersTimelineParams is the query string of Timeline.
+type AppCustomersTimelineParams struct {
+	// 只取 id 比它小的接触
+	Before *int
+	// 最多几条
+	Limit *int
 }
 
 // AppDraftsGetParams is the query string of Get.
@@ -74,6 +112,14 @@ type AppEntitlementsListGrantsParams struct {
 	Status string
 }
 
+// AppEntitlementsListTemplatesParams is the query string of ListTemplates.
+type AppEntitlementsListTemplatesParams struct {
+	// 只要启用的
+	ActiveOnly *bool
+	// 只要这个应用的模板
+	OwnerApp string
+}
+
 // AppLinksResolveParams is the query string of Resolve.
 type AppLinksResolveParams struct {
 	// k3://应用/类型/id
@@ -94,6 +140,20 @@ type AppLinksSearchParams struct {
 type AppOptionsGetParams struct {
 	// 企业从没保存过这个列表时的默认选项。可以重复；SDK 的参数一次只带一个
 	Default string
+}
+
+// AppOrgPlacementParams is the query string of Placement.
+type AppOrgPlacementParams struct {
+	// 人的 subject（成员的 userId）
+	User string
+}
+
+// AppOutreachCustomerMessagesParams is the query string of CustomerMessages.
+type AppOutreachCustomerMessagesParams struct {
+	// 最多几条
+	Limit *int
+	// 只列这个时间及以后建的消息（RFC 3339）
+	Since string
 }
 
 // AppOutreachListTemplatesParams is the query string of ListTemplates.
@@ -170,6 +230,19 @@ type AppEntitlementGranted struct {
 	Ref string `json:"ref"`
 }
 
+// granter 能发放的一件东西
+type AppGranterChoice struct {
+	// 给人看的名字
+	Label string `json:"label"`
+	// 放进 params 的哪个键
+	Param string `json:"param"`
+	// 按价出售时的价格；不按价出售时省略
+	PriceCents int    `json:"priceCents,omitempty"`
+	Summary    string `json:"summary,omitempty"`
+	// 键的值
+	Value string `json:"value"`
+}
+
 // 一个不带令牌就能用的地址，到 expiresAt 为止
 type AppBlobPresigned struct {
 	// 地址失效的时间
@@ -190,6 +263,14 @@ type AppAccessMine struct {
 	Sets map[string]string `json:"sets"`
 	// 还有下一页
 	Truncated bool `json:"truncated"`
+}
+
+// 一个人所在的部门链和角色
+type AppOrgPlacement struct {
+	// 被指派的角色 id
+	Roles []string `json:"roles"`
+	// 部门 id：先是自己的部门，再逐级向上；然后是任命的部门及其上级
+	Units []string `json:"units"`
 }
 
 // 一个字段可选的值
@@ -364,6 +445,16 @@ type AppOptionsList struct {
 	Items []string `json:"items"`
 }
 
+// 一个部门
+type AppOrgUnit struct {
+	Id   string `json:"id"`
+	Name string `json:"name"`
+	// 上级部门；根部门省略
+	ParentId string `json:"parentId,omitempty"`
+	// 从根到它的名字路径
+	Path string `json:"path"`
+}
+
 // 一份实时文档的头信息
 type AppRealtimeDocHead struct {
 	// 编码：yjs-v1、ymap-v1、board-v1 或 Office 编码
@@ -403,6 +494,26 @@ type AppDraftView struct {
 	Summary   string    `json:"summary,omitempty"`
 	Tenant    string    `json:"tenant,omitempty"`
 	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// 一位客户的同意变化，作为订阅服务一次运行的输入（只有客户 id、渠道、用途与状态）
+type AppConsentChangeInput struct {
+	// 变化写入的时间
+	At time.Time `json:"at"`
+	// 渠道：sms、wechat_template、wecom，或 any（所有渠道）
+	Channel string `json:"channel"`
+	// 客户中心的客户 id
+	Customer string `json:"customer"`
+	// 变化的 id，也是运行的幂等键
+	Id string `json:"id"`
+	// 用途：service 或 marketing
+	Purpose string `json:"purpose"`
+	// 新的状态：granted 或 withdrawn
+	State string `json:"state"`
+	// 租户
+	Tenant string `json:"tenant"`
+	// customer.consent.changed
+	Type string `json:"type"`
 }
 
 // 一位客户的权益
@@ -783,6 +894,18 @@ type AppPaymentRefund struct {
 	Tenant string `json:"tenant"`
 }
 
+// 一页客户和总数
+type AppCustomerPage struct {
+	Items []AppCustomerSummary `json:"items"`
+	// 同一范围、同一筛选下的客户总数
+	Total int `json:"total"`
+}
+
+// 一页接触，新的在前
+type AppCustomerTimeline struct {
+	Items []AppCustomerTouchView `json:"items"`
+}
+
 // 一项提议的变更：本应用的一个操作
 type AppDraftItemInput struct {
 	// 操作所属的应用。省略时是本应用，写了就必须是本应用
@@ -935,6 +1058,12 @@ type AppModelStatus struct {
 	Transcribe bool `json:"transcribe"`
 }
 
+// 企业自己的一个角色
+type AppOrgRole struct {
+	Id   string `json:"id"`
+	Name string `json:"name"`
+}
+
 // 作废核销单或取消预留的正文（必须是 JSON 对象）
 type AppEntitlementReasonRequest struct {
 	// 原因
@@ -1005,6 +1134,29 @@ type AppEntitlementGrantResult struct {
 	Replay bool `json:"replay"`
 }
 
+// 发给客户的一条消息（裁剪过）
+type AppSentMessage struct {
+	// 渠道种类
+	Channel     string    `json:"channel"`
+	CreatedAt   time.Time `json:"createdAt"`
+	DeliveredAt time.Time `json:"deliveredAt,omitempty"`
+	// 消息 id
+	Id string `json:"id"`
+	// 本应用发的
+	Mine bool `json:"mine"`
+	// service 或 marketing
+	Purpose string `json:"purpose"`
+	// 没发出或失败的原因代码
+	Reason string    `json:"reason,omitempty"`
+	SentAt time.Time `json:"sentAt,omitempty"`
+	// queued、sent、delivered、skipped、failed 或 cancelled
+	State string `json:"state"`
+	// 模板 id（只在 mine 时）
+	Template string `json:"template,omitempty"`
+	// 触发来源（只在 mine 时）
+	TriggerRef string `json:"triggerRef,omitempty"`
+}
+
 // 发起一笔收款
 type AppPayCreateRequest struct {
 	// 金额，整数分
@@ -1029,6 +1181,24 @@ type AppPayCreateRequest struct {
 	TtlSeconds int `json:"ttlSeconds,omitempty"`
 }
 
+// 另一个应用发出的事件，作为订阅服务一次运行的输入
+type AppAppEventInput struct {
+	// 发布方应用 id
+	App string `json:"app"`
+	// 平台收到事件的时间
+	CreatedAt time.Time `json:"createdAt"`
+	// 事件涉及的客户（客户中心的 id），可为空
+	Customer string `json:"customer,omitempty"`
+	// 发布方给的事件内容（最多 16 KiB）
+	Data map[string]any `json:"data,omitempty"`
+	// 事件 id，也是运行的幂等键：appevt:{发布方}:{发布方的键}
+	Id string `json:"id"`
+	// 租户
+	Tenant string `json:"tenant"`
+	// 事件类型，{发布方 id}.{what}
+	Type string `json:"type"`
+}
+
 // 另一个应用的一条记录
 type AppLink struct {
 	// 记录所属的应用 id
@@ -1046,6 +1216,17 @@ type AppLink struct {
 	// 在所属应用里打开它的路由
 	Route string `json:"route,omitempty"`
 	Title string `json:"title"`
+}
+
+// 可发放项
+type AppGranterChoices struct {
+	Data []AppGranterChoice `json:"data"`
+}
+
+// 合并的结果
+type AppCustomerMerged struct {
+	// 合并后的主客户 id
+	Primary string `json:"primary"`
 }
 
 // 名单上的一条分享
@@ -1068,6 +1249,31 @@ type AppBlobCopyRequest struct {
 	Dst string `json:"dst"`
 	// 来源对象的键
 	Src string `json:"src"`
+}
+
+// 客户列表里的一行。电话按员工界面打码
+type AppCustomerSummary struct {
+	CreatedAt time.Time `json:"createdAt"`
+	// 主客户的 id
+	Id          string    `json:"id"`
+	LastTouchAt time.Time `json:"lastTouchAt"`
+	Name        string    `json:"name"`
+	// 负责人（员工 subject）
+	Owner     string `json:"owner,omitempty"`
+	OwnerUnit string `json:"ownerUnit,omitempty"`
+	// 打码后的第一个电话
+	Phone string `json:"phone,omitempty"`
+	// 第一次带来这位客户的应用
+	SourceApp     string `json:"sourceApp,omitempty"`
+	SourceChannel string `json:"sourceChannel,omitempty"`
+	// 生效的阶段：lead、customer 或 dormant
+	Stage string `json:"stage"`
+	// 标签 id
+	Tags []string `json:"tags,omitempty"`
+	// 企业微信外部联系人与客户的关联依据，取最弱的一个：none、phone 或 unionid；没有外部联系人时省略
+	WecomBasis string `json:"wecomBasis,omitempty"`
+	// 即 wecomBasis 为 none（待关联）
+	WecomPending bool `json:"wecomPending,omitempty"`
 }
 
 // 客户资料。电话按员工界面打码
@@ -1214,6 +1420,12 @@ type AppDealAttribution struct {
 	Voucher string `json:"voucher,omitempty"`
 }
 
+// 成交时间
+type AppCustomerDealtRequest struct {
+	// 省略为现在
+	At time.Time `json:"at,omitempty"`
+}
+
 // 成交的一行
 type AppDealLine struct {
 	// 金额
@@ -1286,6 +1498,14 @@ type AppEntitlementGrantRequest struct {
 	Template string `json:"template"`
 }
 
+// 按清单的 schedule 启动的一次运行的输入
+type AppScheduleDeliveryInput struct {
+	// 之前没有启动的时间有几个（missed: once 时折进本次；skip 时已丢弃）
+	Missed int `json:"missed,omitempty"`
+	// 这次运行对应的时间（UTC）；幂等键是 schedule: 加它
+	ScheduledAt time.Time `json:"scheduledAt"`
+}
+
 // 排一条触达消息
 type AppOutreachSendRequest struct {
 	// 渠道种类，例如 sms
@@ -1331,6 +1551,14 @@ type AppApprovalRef struct {
 type AppApprovalWithdrawRequest struct {
 	// 撤回的原因
 	Reason string `json:"reason,omitempty"`
+}
+
+// 收回的结果
+type AppGranterRefundResult struct {
+	// 现在值多少
+	AmountCents int `json:"amountCents,omitempty"`
+	// 给员工看的话
+	Effect string `json:"effect,omitempty"`
 }
 
 // 改动前后的列表
@@ -1379,6 +1607,19 @@ type AppRealtimeRef struct {
 	Via string `json:"via"`
 }
 
+// 新的姓名
+type AppCustomerRenameRequest struct {
+	Name string `json:"name"`
+}
+
+// 新的负责人和归属部门
+type AppCustomerOwnerRequest struct {
+	// 员工 subject；空串清空
+	Owner string `json:"owner"`
+	// 部门 id；空串清空
+	OwnerUnit string `json:"ownerUnit"`
+}
+
 // 新草稿：草稿服务的创建正文，加上草稿属于的人
 type AppDraftCreateRequest struct {
 	// 草稿属于的人（企业成员的用户 id）。应用自己的令牌必须给；页面会话省略或等于本人
@@ -1411,6 +1652,21 @@ type AppCustomerTouchRequest struct {
 	// 幂等键，租户内唯一，用来源事件派生
 	Key string `json:"key"`
 	// {应用}.{动作}，例如 coupons.redeem
+	Kind string `json:"kind"`
+	// 指向所发生之事的 k3:// 引用
+	Ref string `json:"ref,omitempty"`
+}
+
+// 时间线上的一条接触
+type AppCustomerTouchView struct {
+	App   string         `json:"app,omitempty"`
+	At    time.Time      `json:"at"`
+	Attrs map[string]any `json:"attrs"`
+	// 写给哪位客户（可能是已并入的）
+	Customer string `json:"customer"`
+	// 接触的 id，翻页用
+	Id int `json:"id"`
+	// {应用}.{动作}
 	Kind string `json:"kind"`
 	// 指向所发生之事的 k3:// 引用
 	Ref string `json:"ref,omitempty"`
@@ -1483,6 +1739,11 @@ type AppCalendarProjection struct {
 	Tz string `json:"tz,omitempty"`
 }
 
+// 权益模板
+type AppEntitlementTemplateList struct {
+	Data []AppEntitlementTemplate `json:"data"`
+}
+
 // 权益的一条变动
 type AppEntitlementLedgerEntry struct {
 	// 谁做的
@@ -1529,6 +1790,20 @@ type AppAccess struct {
 type AppBlobList struct {
 	// 对象
 	Items []AppBlobInfo `json:"items"`
+}
+
+// 标签库里的一个标签
+type AppAppCustomerTag struct {
+	// 颜色
+	Color string `json:"color"`
+	// 标签 id
+	Id string `json:"id"`
+	// 名称
+	Name string `json:"name"`
+	// 来源：manual、wecom 或 rule
+	Source string `json:"source"`
+	// 应用能不能打上、去掉（手动标签）
+	Writable bool `json:"writable"`
 }
 
 // 树类型的 GET /access/{type}/{id}
@@ -1724,6 +1999,10 @@ const (
 	AppErrorCodeWrongEnvironment      AppErrorCode = "wrong_environment"
 )
 
+// 空对象 {}
+type AppCustomerEraseRequest struct {
+}
+
 // 组织的一家门店：门店类部门及其主数据
 type AppStore struct {
 	Address string `json:"address,omitempty"`
@@ -1832,9 +2111,21 @@ type AppSecretEncryptRequest struct {
 	Subject string `json:"subject"`
 }
 
+// 要并入的客户
+type AppCustomerMergeRequest struct {
+	// 并入这一位的客户 id
+	Other string `json:"other"`
+}
+
 // 要应用的项
 type AppDraftApplyRequest struct {
 	Items []AppDraftApplyItem `json:"items"`
+}
+
+// 要挂上的本应用记录
+type AppCustomerLinkRequest struct {
+	// 本应用自己的记录：k3://<调用的应用>/…
+	Ref string `json:"ref"`
 }
 
 // 要解密的密文
@@ -1849,6 +2140,11 @@ type AppSecretDecryptRequest struct {
 type AppSecretShredRequest struct {
 	// 本应用的主体 <种类>:<id>
 	Subject string `json:"subject"`
+}
+
+// 角色
+type AppOrgRoles struct {
+	Items []AppOrgRole `json:"items"`
 }
 
 // 触达日志里的一条消息
@@ -1912,6 +2208,19 @@ type AppEntitlementGrantItem struct {
 	Params map[string]any `json:"params,omitempty"`
 	// 来源
 	Source string `json:"source,omitempty"`
+}
+
+// 请 granter 收回它发出的东西
+type AppGranterRefund struct {
+	// 按这个数收回；省略时按 granter 自己的规则算
+	AmountCents int `json:"amountCents,omitempty"`
+	// 幂等键；省略时用请求头 Idempotency-Key
+	Key string `json:"key,omitempty"`
+	// 只回答值多少，什么也不收
+	Preview bool   `json:"preview,omitempty"`
+	Reason  string `json:"reason,omitempty"`
+	// 发出之物的 k3:// 引用
+	Ref string `json:"ref,omitempty"`
 }
 
 // 谁写了一条记录
@@ -2011,6 +2320,11 @@ type AppNotifyAccepted struct {
 	Rejected int `json:"rejected"`
 }
 
+// 部门
+type AppOrgUnits struct {
+	Items []AppOrgUnit `json:"items"`
+}
+
 // 重新开始用的内容
 type AppRealtimeEpochRequest struct {
 	// 新的 ProseMirror 文档；省略是空文档
@@ -2077,6 +2391,25 @@ type AppAuditRequest struct {
 	Resource string         `json:"resource"`
 }
 
+type AppCustomerOutreachList struct {
+	// 主客户 id
+	Customer string           `json:"customer"`
+	Items    []AppSentMessage `json:"items"`
+}
+
+type AppCustomerTagChange struct {
+	// 客户 id
+	Customer string `json:"customer"`
+	// true 打上，false 去掉
+	On bool `json:"on"`
+	// 标签 id
+	Tag string `json:"tag"`
+}
+
+type AppCustomerTagList struct {
+	Items []AppAppCustomerTag `json:"items"`
+}
+
 type AppDraftItemResponse struct {
 	Item AppDraftItem `json:"item"`
 }
@@ -2099,7 +2432,7 @@ type AppEmitAccepted struct {
 type AppEmitRequest struct {
 	// 事件涉及的客户 id
 	Customer string `json:"customer,omitempty"`
-	// 事件内容
+	// 事件内容，最多 16 KiB（JSON）；只用 id 指代人和记录
 	Data map[string]any `json:"data,omitempty"`
 	// 必填，最多 200 字符。同一个键就是同一个事件
 	Key string `json:"key"`
@@ -2231,6 +2564,24 @@ type AppOutreachTemplateList struct {
 
 type AppPayRefundList struct {
 	Items []AppPayRefund `json:"items"`
+}
+
+type AppReachability struct {
+	// 免打扰时段里营销消息会发出的时间
+	Later time.Time `json:"later,omitempty"`
+	// 现在能不能触达
+	Reachable bool `json:"reachable"`
+	// 第一个不能的原因代码
+	Reason string `json:"reason,omitempty"`
+}
+
+type AppReachableRequest struct {
+	// 渠道种类，例如 sms
+	Channel string `json:"channel"`
+	// 客户 id
+	Customer string `json:"customer"`
+	// service 或 marketing
+	Purpose string `json:"purpose"`
 }
 
 type AppRealtimeEditResult struct {

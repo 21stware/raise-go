@@ -38,6 +38,10 @@ const (
 	TriggerSchedule = "schedule"
 	TriggerCall     = "call"
 	TriggerEvent    = "event:" // event:{kind}
+	// TriggerMCP marks the App's own MCP server (ADR-0130 §2.7 item 6): its endpoint answers MCP over HTTP, and the platform's MCP
+	// bridge lists its tools as "{app}.{tool}" and forwards their calls with an assertion of ViaMCP. It is the only trigger of its
+	// service, an App has at most one, and the service takes no input schema (the tools describe their own).
+	TriggerMCP = "mcp"
 )
 
 // Service is a background handler of the App with an address: k3://{app}/svc/{id}. The address names it (a notice, the audit trail, the
@@ -50,6 +54,8 @@ type Service struct {
 	// Endpoint is the handler's path on the App's own server.
 	Endpoint string `json:"endpoint"`
 	Module   string `json:"module,omitempty"`
+	// Schedule says when the platform starts a run of a service with the schedule trigger (required with it, not allowed without).
+	Schedule *Schedule `json:"schedule,omitempty"`
 }
 
 // ComposerTemplate is an Agent action of the App (ADR-0098): a button of the App's page that sends Text, its slots filled with the
@@ -228,6 +234,7 @@ func (m *Manifest) validateLinks(types map[string]bool, add func(string, ...any)
 		add("services: at most %d", MaxServices)
 	}
 	seen = map[string]bool{}
+	mcps := 0
 	for i, sv := range m.Services {
 		where := fmt.Sprintf("services[%d]", i)
 		switch {
@@ -244,12 +251,22 @@ func (m *Manifest) validateLinks(types map[string]bool, add func(string, ...any)
 			add("%s.module %q is not declared in modules", where, sv.Module)
 		}
 		if len(sv.Trigger) == 0 || len(sv.Trigger) > 4 {
-			add("%s.trigger: one to four triggers (schedule, call, event:{kind})", where)
+			add("%s.trigger: one to four triggers (schedule, call, event:{kind}, or mcp alone)", where)
 		}
 		for _, tr := range sv.Trigger {
 			kind, isEvent := strings.CutPrefix(tr, TriggerEvent)
+			if tr == TriggerMCP {
+				mcps++
+				if len(sv.Trigger) > 1 {
+					add("%s.trigger: mcp is the only trigger of its service (an MCP server is not a run handler)", where)
+				}
+				if len(sv.Input) > 0 {
+					add("%s.input: an mcp service takes none (its tools describe their own input)", where)
+				}
+				continue
+			}
 			if tr != TriggerSchedule && tr != TriggerCall && !(isEvent && isEventKind(kind)) {
-				add("%s.trigger %q: want schedule, call or event:{kind}", where, tr)
+				add("%s.trigger %q: want schedule, call, event:{kind} or mcp", where, tr)
 			}
 		}
 		if !strings.HasPrefix(sv.Endpoint, "/") || strings.HasPrefix(sv.Endpoint, "//") || len(sv.Endpoint) > 200 {
@@ -258,6 +275,20 @@ func (m *Manifest) validateLinks(types map[string]bool, add func(string, ...any)
 		for _, p := range SchemaProblems(sv.Input) {
 			add("%s.input: %s", where, p)
 		}
+		switch scheduled := slices.Contains(sv.Trigger, TriggerSchedule); {
+		case scheduled && sv.Schedule == nil:
+			add("%s.schedule is required with the schedule trigger (cron, timezone, missed)", where)
+		case !scheduled && sv.Schedule != nil:
+			add("%s.schedule: only a service with the schedule trigger has one", where)
+		case scheduled:
+			for _, p := range sv.Schedule.Problems() {
+				add("%s.schedule.%s", where, p)
+			}
+		}
+	}
+
+	if mcps > 1 {
+		add("services: at most one service of trigger mcp")
 	}
 
 	if len(m.ComposerTemplates) > MaxComposerTemplate {

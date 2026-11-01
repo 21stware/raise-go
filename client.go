@@ -155,9 +155,20 @@ type requestOptions struct {
 	tenant          string
 	skipAuth        bool
 	skipIdempotency bool
+	headers         map[string]string // the operation's header parameters (K3-Dry-Run), from the generated options
 }
 
 // WithIdempotencyKey sets the Idempotency-Key for one POST. The SDK generates a uuid v4 when this is omitted.
 func WithIdempotencyKey(k string) CallOption {
 	return func(o *requestOptions) { o.idempotencyKey = k }
+}
+
+// withHeader is the generated header options' CallOption (WithDryRun).
+func withHeader(name, value string) CallOption {
+	return func(o *requestOptions) {
+		if o.headers == nil {
+			o.headers = map[string]string{}
+		}
+		o.headers[name] = value
+	}
 }

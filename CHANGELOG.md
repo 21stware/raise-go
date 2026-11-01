@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.0 — 2026-11-01
+
+- `k3`: `Service.Schedule` (`Schedule{Cron, Timezone, Missed}`, `ParseCron`, `Cron.Next`, `ScheduleInput`, `ScheduleKey`, `MissedSkip` / `MissedOnce`, `DefaultScheduleZone`, `ScheduleGrace`): a service with the `schedule` trigger says when the platform starts its runs; the manifest is refused without it.
+- `k3`: `events.emits` is checked (the app's own `{id}.{what}`, not one of `PlatformEventKinds`, at most `MaxEmits`); `Manifest.EmitsKind`.
+- `appkit`: a customer's reach: `Client.Reach()` (`Reach` with `History`, `Reachable`; `SentMessage`, `Reachability`), `ScopeOutreachReach`. The generated client has `App.Outreach.CustomerMessages`, `Reachable`.
+- `appkit`: customer tags: `Client.CustomerTags()` (`CustomerTags` with `Tags`, `Tag`; `CustomerTag`), `ScopeCustomersTag`. The generated client has `App.Customers.ListTags`, `AddTag`, `RemoveTag`.
+- `appkit`: consent changes: `ConsentService(id, title)`, `ConsentHandling` (`ConsentChanges(d) ConsentFunc`), `ConsentChange`, `KindConsentChanged`, `ScopeConsentEvents` (the manifest must use it), served by `Serve` behind the assertion.
+- `appkit`: events between apps: `Client.Emit` (`Emit`) publishes a declared kind; `EventService(id, title, kinds...)` declares a subscriber, and an app that implements `AppEventHandling` (`AppEvents(d) map[string]AppEventFunc`, `AppEvent`) is called by `Serve` behind the assertion.
+- `appkit`: `ScheduleService(id, title, cron, zone, missed)` declares one; an app that implements `Scheduling` (`Schedules(d) map[string]ScheduleFunc`) is called at its endpoint by `Serve` for every time of the schedule, per tenant, with the platform's assertion checked.
+- `Client.App`: header parameters of the spec are generated as call options. `WithDryRun()` sends `K3-Dry-Run: 1` (a dry run: the platform answers as if done and keeps nothing) on the operations that take it, e.g. `c.App.Entitlements.CreateTemplate(ctx, body, raise.WithDryRun())`. Before, the generated client could not send it.
+
 ## 0.4.0 — 2026-11-01
 
 - `appkit`: four more `/app/v1` clients, the platform's whole contract for each (general, not trimmed to one app; first used by the campaign app in `raise-growth`, later by the rehab apps): `Client.Entitlements()` (`EntitlementClient` with `Dry`, `GrantVia`, `HasGranter`, `RelinkStore`; `EntTemplate`, `TemplateReq`, `GrantReq`, `GrantResult`, `GrantItem`, `EntGrant`, `RedeemReq`, `RedeemResult`, `ReserveReq`, `EntReservation`, `EntRefundReq`, `EntRefundResult`, `TransferReq`, the kind/source/state constants, `ErrNoGranter`, `EntRefused`; dry run by `K3-Dry-Run`), `Client.Vault()` (`Vault`: encrypt, decrypt, shred under the app's own `<kind>:<id>`), `Client.Sites()` (`Sites`, `SiteUsageReq`, `SiteSummary`) and `Client.Stores()` (`OrgStores`, `OrgStore`); `Deps.EntitlementAPI` with `Deps.EntitlementClient()`, `Deps.Vault`, `Deps.Sites`, `Deps.Stores`. Same names as the platform's `firstparty`.

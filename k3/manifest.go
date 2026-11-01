@@ -107,6 +107,8 @@ type Manifest struct {
 
 // EventsDecl is what an App says about open events.
 type EventsDecl struct {
+	// Emits are the kinds the App publishes ({app id}.{what}): to the integrations' webhooks when the kind is an open event of the
+	// platform, and to every installed App whose service declares the trigger event:{kind} (events.go). Reviewed with the version.
 	Emits []string `json:"emits,omitempty"`
 	// Receives are the platform's data events the App keeps its own data right with (ADR-0130 §2.5 data 1; at least once):
 	// "tenant.deleted", "site.deleted", "customer.merged" (subject "<merged>><kept>"). In its own process the App gets them at POST /k3/events/{kind}.
@@ -266,6 +268,16 @@ func (m *Manifest) ServiceFor(kind string) (Service, bool) {
 			if tr == TriggerEvent+kind {
 				return sv, true
 			}
+		}
+	}
+	return Service{}, false
+}
+
+// MCPService is the App's own MCP server: its service of trigger mcp (false: none).
+func (m *Manifest) MCPService() (Service, bool) {
+	for _, sv := range m.Services {
+		if slices.Contains(sv.Trigger, TriggerMCP) {
+			return sv, true
 		}
 	}
 	return Service{}, false
@@ -823,6 +835,7 @@ func (m *Manifest) Validate() error {
 	if len(m.Egress) > 32 {
 		add("egress: at most 32 hosts")
 	}
+	m.validateEmits(add)
 	if m.Events != nil {
 		for i, k := range m.Events.Receives {
 			if !slices.Contains(DataEventKinds, k) {

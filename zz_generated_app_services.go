@@ -378,10 +378,75 @@ func (s *AppCalendarService) Push(ctx context.Context, body *AppCalendarPush, op
 // AppCustomersService is the customers resource of the app API.
 type AppCustomersService struct{ c *Client }
 
+// 给本企业的一位客户打上标签（opv2 J2 ④）
+// 需要范围 `app.customers:tag`。English: puts a manual tag on a customer of the tenant.
+//
+// 只能是标签库里的手动标签：别的来源（企业微信）的标签只读，返回 422 `validation_failed`。客户或标签不存在是 404 `not_found`；客户被合并时作用在主客户上。重复调用结果相同。每次改动在企业的审计链里记一条（`customer.tag` / `customer.untag`，操作者是页面会话的人或应用自己）；一个应用在一个企业里每 10 分钟最多改 3000 次，超过返回 429。只限本企业的客户：应用自己的调用（企业令牌）可改本企业任何客户；页面会话里的人只能改他在客户应用里「编辑客户」（customer.write）的数据范围内的客户，范围外的客户与不存在一样返回 404。
+func (s *AppCustomersService) AddTag(ctx context.Context, id string, tag string, opts ...CallOption) (*AppCustomerTagChange, error) {
+	path := "/customers/" + url.PathEscape(id) + "/tags/" + url.PathEscape(tag)
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppCustomerTagChange
+	if err := s.c.doApp(ctx, "PUT", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 抹除一位客户的个人数据（不可撤销）
+// 需要范围 `app.customers:write`。English: erases the customer's personal data; final.
+//
+// 正文是 `{}`。抹除之后不能恢复。
+func (s *AppCustomersService) Erase(ctx context.Context, id string, body *AppCustomerEraseRequest, opts ...CallOption) (*map[string]any, error) {
+	path := "/customers/" + url.PathEscape(id) + "/erase"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out map[string]any
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 按手机号找到一位客户
+// 需要范围 `app.customers:read`。English: finds the customer that owns the phone and answers the masked profile.
+//
+// `kind` 目前只有 `phone`，`value` 是号码。没有这位客户是 404 `not_found`；`kind` 不对或 `value` 为空是 422。
+func (s *AppCustomersService) Find(ctx context.Context, p *AppCustomersFindParams) (*AppCustomerView, error) {
+	path := "/customers/find"
+	q := url.Values{}
+	if p != nil {
+		if p.Kind != "" {
+			q.Set("kind", p.Kind)
+		}
+		if p.Value != "" {
+			q.Set("value", p.Value)
+		}
+	}
+	var ro requestOptions
+	var out AppCustomerView
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // 读一位客户的遮蔽资料
 // 需要范围 `app.customers:read`。English: the customer's profile with phone and e-mail masked.
 //
 // `id` 是主客户的 id。若这个 id 的客户已被合并，返回的 `id` 是合并后的主客户（与你问的不同），`mergedFrom` 列出并入它的客户。客户中心没有这个 id 是 404 `not_found`。
+//
+// 数据范围：应用自己的调用（企业令牌）可读本企业任何客户；页面会话里的人只能读他在客户应用里「查看客户」（customer.read）数据范围内的客户，范围外的与不存在一样返回 404。
 func (s *AppCustomersService) Get(ctx context.Context, id string) (*AppCustomerView, error) {
 	path := "/customers/" + url.PathEscape(id)
 	var q url.Values
@@ -393,12 +458,177 @@ func (s *AppCustomersService) Get(ctx context.Context, id string) (*AppCustomerV
 	return &out, nil
 }
 
+// 把本应用的一条记录挂到客户上
+// 需要范围 `app.customers:write`。English: links one of the calling app's own records to the customer.
+//
+// `ref` 必须是本应用自己的记录（`k3://<调用的应用>/…`），别的应用的引用是 422。
+func (s *AppCustomersService) Link(ctx context.Context, id string, body *AppCustomerLinkRequest, opts ...CallOption) (*map[string]any, error) {
+	path := "/customers/" + url.PathEscape(id) + "/links"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out map[string]any
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 列出调用者（这个人）有权看的客户
+// 需要范围 `app.customers:list`。English: a page of the customers inside the calling person's `customer.read` grant on the customer app.
+//
+// 数据范围是**这个人**在客户应用上的 `customer.read` 授权，不是应用自己的权限：应用用自己的令牌调用，或这个人没有 `customer.read`，都是 403。`stage` 是 `lead`、`customer` 或 `dormant`；`limit` 为 1 到 200；`hint` 只留下处在待处理合并建议一端的客户；`wecomPending` 只留下企业微信外部联系人尚未关联的客户。字段不合规是 422。
+func (s *AppCustomersService) List(ctx context.Context, p *AppCustomersListParams) (*AppCustomerPage, error) {
+	path := "/customers"
+	q := url.Values{}
+	if p != nil {
+		if p.Hint != nil {
+			q.Set("hint", strconv.FormatBool(*p.Hint))
+		}
+		if p.Limit != nil {
+			q.Set("limit", strconv.Itoa(*p.Limit))
+		}
+		if p.Offset != nil {
+			q.Set("offset", strconv.Itoa(*p.Offset))
+		}
+		if p.Owner != "" {
+			q.Set("owner", p.Owner)
+		}
+		if p.Q != "" {
+			q.Set("q", p.Q)
+		}
+		if p.Source != "" {
+			q.Set("source", p.Source)
+		}
+		if p.Stage != "" {
+			q.Set("stage", p.Stage)
+		}
+		if p.Tag != "" {
+			q.Set("tag", p.Tag)
+		}
+		if p.WecomPending != nil {
+			q.Set("wecomPending", strconv.FormatBool(*p.WecomPending))
+		}
+	}
+	var ro requestOptions
+	var out AppCustomerPage
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 列出企业的客户标签库（opv2 J2 ④）
+// 需要范围 `app.customers:read`。English: the tenant's tag dictionary; `writable` says which tags an app may put on and take off.
+//
+// 不含每个标签有多少客户。
+func (s *AppCustomersService) ListTags(ctx context.Context) (*AppCustomerTagList, error) {
+	path := "/customers/tags"
+	var q url.Values
+	var ro requestOptions
+	var out AppCustomerTagList
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 记这位客户成交了
+// 需要范围 `app.customers:write`。English: marks the customer as having dealt, at the given time or now.
+//
+// `at` 省略为现在。
+func (s *AppCustomersService) MarkDealt(ctx context.Context, id string, body *AppCustomerDealtRequest, opts ...CallOption) (*map[string]any, error) {
+	path := "/customers/" + url.PathEscape(id) + "/dealt"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out map[string]any
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 把另一位客户并入这一位
+// 需要范围 `app.customers:write`。English: merges the other customer into this one and answers the primary customer's id.
+//
+// `other` 必填。两个 id 都可以是已被合并过的，返回的 `primary` 是合并后的主客户。
+func (s *AppCustomersService) Merge(ctx context.Context, id string, body *AppCustomerMergeRequest, opts ...CallOption) (*AppCustomerMerged, error) {
+	path := "/customers/" + url.PathEscape(id) + "/merge"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppCustomerMerged
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 去掉本企业一位客户的标签（opv2 J2 ④）
+// 需要范围 `app.customers:tag`。English: takes a manual tag off a customer of the tenant.
+//
+// 只能是标签库里的手动标签：别的来源（企业微信）的标签只读，返回 422 `validation_failed`。客户或标签不存在是 404 `not_found`；客户被合并时作用在主客户上。重复调用结果相同。每次改动在企业的审计链里记一条（`customer.tag` / `customer.untag`，操作者是页面会话的人或应用自己）；一个应用在一个企业里每 10 分钟最多改 3000 次，超过返回 429。只限本企业的客户：应用自己的调用（企业令牌）可改本企业任何客户；页面会话里的人只能改他在客户应用里「编辑客户」（customer.write）的数据范围内的客户，范围外的客户与不存在一样返回 404。
+func (s *AppCustomersService) RemoveTag(ctx context.Context, id string, tag string, opts ...CallOption) (*AppCustomerTagChange, error) {
+	path := "/customers/" + url.PathEscape(id) + "/tags/" + url.PathEscape(tag)
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppCustomerTagChange
+	if err := s.c.doApp(ctx, "DELETE", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 改客户的姓名
+// 需要范围 `app.customers:write`。English: renames the customer. 没有这个客户是 404 `not_found`。
+func (s *AppCustomersService) Rename(ctx context.Context, id string, body *AppCustomerRenameRequest, opts ...CallOption) (*map[string]any, error) {
+	path := "/customers/" + url.PathEscape(id) + "/rename"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out map[string]any
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // 按身份（手机号等）找到或建立客户，返回主客户的 id
 // 需要范围 `app.customers:resolve`。English: finds the customer that owns one of the identities, or creates one, and answers the primary customer's id and whether this call created it.
 //
 // `identities` 是这个人的身份（`kind`、`value`，可带 `scope`、`verified`）。`name`、`owner`、`ownerUnit` 在新建客户时使用。`channel` 与 `sourceRef` 是这位客户第一次从哪里来（来源应用是调用的应用，不能自己填）。`public` 标记匿名访客发起的调用。`anonymous` 要求新建一位没有任何身份的客户，此时 `identities` 必须为空，也不做任何匹配，所以一定新建。
 //
 // 查询 `dryRun=1`：只回答“会得到什么”，什么也不写（不建客户）；新建的客户 id 不会被任何别的调用认识。
+//
+// 数据范围：页面会话里的人找到的客户如果不在他「查看客户」（customer.read）的数据范围内，回答只有 `id` 与 `created`，没有 `name`；应用自己的调用（企业令牌）不受影响。
 //
 // 正文里的字段不合规是 422。
 func (s *AppCustomersService) Resolve(ctx context.Context, body *AppCustomerResolveRequest, p *AppCustomersResolveParams, opts ...CallOption) (*AppCustomerRef, error) {
@@ -419,6 +649,51 @@ func (s *AppCustomersService) Resolve(ctx context.Context, body *AppCustomerReso
 		reqBody = body
 	}
 	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 改客户的负责人和归属部门
+// 需要范围 `app.customers:write`。English: sets the customer's owner and owning unit.
+//
+// `owner` 是员工 subject，`ownerUnit` 是部门 id；两个都可以是空串，表示清空。
+func (s *AppCustomersService) SetOwner(ctx context.Context, id string, body *AppCustomerOwnerRequest, opts ...CallOption) (*map[string]any, error) {
+	path := "/customers/" + url.PathEscape(id) + "/owner"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out map[string]any
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 读一位客户的时间线（新的在前）
+// 需要范围 `app.customers:read`。English: the customer's timeline entries, newest first, paged by the id of the last one seen.
+//
+// `limit` 为 1 到 200；`before` 是上一页最后一条的 `id`，只取比它早的。没有这个客户是 404 `not_found`。
+func (s *AppCustomersService) Timeline(ctx context.Context, id string, p *AppCustomersTimelineParams) (*AppCustomerTimeline, error) {
+	path := "/customers/" + url.PathEscape(id) + "/timeline"
+	q := url.Values{}
+	if p != nil {
+		if p.Before != nil {
+			q.Set("before", strconv.Itoa(*p.Before))
+		}
+		if p.Limit != nil {
+			q.Set("limit", strconv.Itoa(*p.Limit))
+		}
+	}
+	var ro requestOptions
+	var out AppCustomerTimeline
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -636,10 +911,27 @@ func (s *AppDraftsService) Review(ctx context.Context, id string, item string, b
 // AppEntitlementsService is the entitlements resource of the app API.
 type AppEntitlementsService struct{ c *Client }
 
+// 按券码读一项权益
+// 需要范围 `app.entitlements:read`。English: the grant that carries the code.
+//
+// 不存在的券码和格式不对的券码得到同一个 404 `not_found`，所以猜码学不到任何东西。
+func (s *AppEntitlementsService) ByCode(ctx context.Context, code string) (*AppEntitlementGrant, error) {
+	path := "/entitlements/codes/" + url.PathEscape(code)
+	var q url.Values
+	var ro requestOptions
+	var out AppEntitlementGrant
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // 取消预留，释放被留住的次数
 // 需要范围 `app.entitlements:write`。English: gives a live reservation up; one that ended already is answered as it is.
 //
 // 已结束的预留原样返回且 `replay` 为 true。正文必须是 JSON 对象，`reason` 可省略。
+//
+// WithDryRun() sends the K3-Dry-Run header.
 func (s *AppEntitlementsService) CancelReservation(ctx context.Context, id string, body *AppEntitlementReasonRequest, opts ...CallOption) (*AppEntitlementReservation, error) {
 	path := "/entitlements/reservations/" + url.PathEscape(id) + "/cancel"
 	var q url.Values
@@ -662,6 +954,8 @@ func (s *AppEntitlementsService) CancelReservation(ctx context.Context, id strin
 // 需要范围 `app.entitlements:write`。English: makes the reservation's redemption, exactly once.
 //
 // 再次确认返回同一张核销单且 `replay` 为 true。预留已过期或已取消是 409 `conflict`。不需要正文。
+//
+// WithDryRun() sends the K3-Dry-Run header.
 func (s *AppEntitlementsService) ConfirmReservation(ctx context.Context, id string, opts ...CallOption) (*AppEntitlementRedeemResult, error) {
 	path := "/entitlements/reservations/" + url.PathEscape(id) + "/confirm"
 	var q url.Values
@@ -680,6 +974,8 @@ func (s *AppEntitlementsService) ConfirmReservation(ctx context.Context, id stri
 // 需要范围 `app.entitlements:write`。English: creates a template owned by the calling app.
 //
 // `ownerApp` 可省略；写了别的应用是 403 `forbidden`。种类（`kind`）建立后不能改。带请求头 `K3-Dry-Run: 1` 只预演，什么也不写。
+//
+// WithDryRun() sends the K3-Dry-Run header.
 func (s *AppEntitlementsService) CreateTemplate(ctx context.Context, body *AppEntitlementTemplateRequest, opts ...CallOption) (*AppEntitlementTemplate, error) {
 	path := "/entitlements/templates"
 	var q url.Values
@@ -741,6 +1037,8 @@ func (s *AppEntitlementsService) GetTemplate(ctx context.Context, id string) (*A
 // 需要范围 `app.entitlements:write`。English: issues `count` grants of one of the app's own templates to a customer, once per key.
 //
 // `key` 在正文里；正文没写时用请求头 `Idempotency-Key`。同键重来返回 200 且 `replay` 为 true，不再发放；新发放返回 201。模板不是本应用的是 403 `forbidden`。`count` 为 1 到 1000，默认 1；`code` 只用于 `count` 为 1 的券或奖品。
+//
+// WithDryRun() sends the K3-Dry-Run header.
 func (s *AppEntitlementsService) Grant(ctx context.Context, body *AppEntitlementGrantRequest, opts ...CallOption) (*AppEntitlementGrantResult, error) {
 	path := "/entitlements/grants"
 	var q url.Values
@@ -763,6 +1061,8 @@ func (s *AppEntitlementsService) Grant(ctx context.Context, body *AppEntitlement
 // 需要范围 `app.entitlements:write`。English: asks the app that declares the granter to issue something; at least once, once per key.
 //
 // `key` 在正文里，没写时用请求头 `Idempotency-Key`，必填；`holder` 必填。没有应用声明这个名字是 404 `not_found`。`params` 是 granter 自己的词汇；`dry` 为 true 或带 `K3-Dry-Run: 1` 时只预演。返回 granter 给出的 `ref`。
+//
+// WithDryRun() sends the K3-Dry-Run header.
 func (s *AppEntitlementsService) GrantVia(ctx context.Context, name string, body *AppEntitlementGrantItem, opts ...CallOption) (*AppEntitlementGranted, error) {
 	path := "/entitlements/granters/" + url.PathEscape(name) + "/grants"
 	var q url.Values
@@ -771,6 +1071,45 @@ func (s *AppEntitlementsService) GrantVia(ctx context.Context, name string, body
 		o(&ro)
 	}
 	var out AppEntitlementGranted
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 列出一个 granter 能发放的东西
+// 需要范围 `app.entitlements:read`。English: what the granter can issue, for a picker.
+//
+// 没有应用声明这个名字，或它不列出，`data` 是 `[]`。`priceCents` 在 granter 按价出售时给出。
+func (s *AppEntitlementsService) GranterChoices(ctx context.Context, name string) (*AppGranterChoices, error) {
+	path := "/entitlements/granters/" + url.PathEscape(name) + "/choices"
+	var q url.Values
+	var ro requestOptions
+	var out AppGranterChoices
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 请 granter 收回它发出的东西
+// 需要范围 `app.entitlements:write`。English: asks the app that declares the granter to take back what it issued (an order refunds what it collected); idempotent by key.
+//
+// `ref` 是发出之物的 `k3://` 引用。`amountCents` 省略时按 granter 自己的规则算现在值多少并收回，写了就按这个数收回。`key` 在正文里，没写时用请求头 `Idempotency-Key`，同键重来返回第一次的结果、不再收回。`preview` 为 true 或带 `K3-Dry-Run: 1` 时只回答值多少，什么也不收。没有应用声明这个名字是 404 `not_found`；granter 不收回是 409（错误码 not_refundable）；被拒绝时 422 用话说明原因。
+//
+// WithDryRun() sends the K3-Dry-Run header.
+func (s *AppEntitlementsService) GranterRefund(ctx context.Context, name string, body *AppGranterRefund, opts ...CallOption) (*AppGranterRefundResult, error) {
+	path := "/entitlements/granters/" + url.PathEscape(name) + "/refunds"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppGranterRefundResult
 	var reqBody any
 	if body != nil {
 		reqBody = body
@@ -817,10 +1156,35 @@ func (s *AppEntitlementsService) ListGrants(ctx context.Context, p *AppEntitleme
 	return &out, nil
 }
 
+// 列出权益模板
+// 需要范围 `app.entitlements:read`。English: the tenant's entitlement templates, optionally of one app or only the active ones.
+//
+// `ownerApp` 筛归属的应用；`activeOnly` 为 true 时只留启用的。没有时 `data` 是 `[]`。
+func (s *AppEntitlementsService) ListTemplates(ctx context.Context, p *AppEntitlementsListTemplatesParams) (*AppEntitlementTemplateList, error) {
+	path := "/entitlements/templates"
+	q := url.Values{}
+	if p != nil {
+		if p.ActiveOnly != nil {
+			q.Set("activeOnly", strconv.FormatBool(*p.ActiveOnly))
+		}
+		if p.OwnerApp != "" {
+			q.Set("ownerApp", p.OwnerApp)
+		}
+	}
+	var ro requestOptions
+	var out AppEntitlementTemplateList
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // 核销一次权益（原子，按 key 幂等）
 // 需要范围 `app.entitlements:write`。English: uses a grant once or more, atomically.
 //
 // `pick` 指定权益；不指定时服务在 `holder` 的权益里按“先到期的、无期限的最后、剩得少的、先发的”选。`key` 在正文里，没写时用请求头 `Idempotency-Key`；同键重来 `replay` 为 true，不再扣。任何权益都可以核销，不限本应用的模板。不能核销时是 422，`error.message` 是给人看的原因，`error.details.items` 逐项说明其他权益为什么不行。
+//
+// WithDryRun() sends the K3-Dry-Run header.
 func (s *AppEntitlementsService) Redeem(ctx context.Context, body *AppEntitlementRedeemRequest, opts ...CallOption) (*AppEntitlementRedeemResult, error) {
 	path := "/entitlements/redemptions"
 	var q url.Values
@@ -843,6 +1207,8 @@ func (s *AppEntitlementsService) Redeem(ctx context.Context, body *AppEntitlemen
 // 需要范围 `app.entitlements:write`。English: ends a grant of the app's own template and answers the amount to give back.
 //
 // `mode` 省略或 `times`：按剩余次数的份额；`amount`：按 `amountCents`，不超过还没退的付款。`reason` 必填。路径里的 id 优先于正文里的 `grant`。别的应用的权益是 403 `forbidden`。服务不动钱，钱由调用方退。
+//
+// WithDryRun() sends the K3-Dry-Run header.
 func (s *AppEntitlementsService) Refund(ctx context.Context, id string, body *AppEntitlementRefundRequest, opts ...CallOption) (*AppEntitlementRefundResult, error) {
 	path := "/entitlements/grants/" + url.PathEscape(id) + "/refund"
 	var q url.Values
@@ -865,6 +1231,8 @@ func (s *AppEntitlementsService) Refund(ctx context.Context, id string, body *Ap
 // 需要范围 `app.entitlements:write`。English: rewrites a legacy store id to the organisation's store in the templates and grants the calling app owns, and in the redemptions of those grants.
 //
 // `scope` 里的 `store:<from>` 换成 `store:<to>`，这些权益的核销记录的地点 `from` 换成 `to`。只动调用应用自己发出的模板与权益（所有者由平台按调用方定，正文不能指定）。重复调用不再改变任何东西。活动关联旧门店记录时用它（ADR-0057）。
+//
+// WithDryRun() sends the K3-Dry-Run header.
 func (s *AppEntitlementsService) RelinkStore(ctx context.Context, body *AppEntitlementStoreRelinkRequest, opts ...CallOption) (*map[string]any, error) {
 	path := "/entitlements/stores/relink"
 	var q url.Values
@@ -887,6 +1255,8 @@ func (s *AppEntitlementsService) RelinkStore(ctx context.Context, body *AppEntit
 // 需要范围 `app.entitlements:write`。English: keeps one use aside until it is confirmed, cancelled or expired.
 //
 // 正文是核销的字段加 `ttlSeconds`（5 到 86400，默认 900）。权益的选法同核销。预留期间别人不能用这份。同一个 `key` 返回同一个预留：200 且 `replay` 为 true；新预留 201。
+//
+// WithDryRun() sends the K3-Dry-Run header.
 func (s *AppEntitlementsService) Reserve(ctx context.Context, body *AppEntitlementReserveRequest, opts ...CallOption) (*AppEntitlementReservation, error) {
 	path := "/entitlements/reservations"
 	var q url.Values
@@ -909,6 +1279,8 @@ func (s *AppEntitlementsService) Reserve(ctx context.Context, body *AppEntitleme
 // 需要范围 `app.entitlements:write`。English: gives what is left of a grant to another holder.
 //
 // 原权益结束，生成一项条款相同的新权益并返回。不能转让时是 422，说明原因。别的应用的权益是 403 `forbidden`。
+//
+// WithDryRun() sends the K3-Dry-Run header.
 func (s *AppEntitlementsService) Transfer(ctx context.Context, id string, body *AppEntitlementTransferRequest, opts ...CallOption) (*AppEntitlementGrant, error) {
 	path := "/entitlements/grants/" + url.PathEscape(id) + "/transfer"
 	var q url.Values
@@ -931,6 +1303,8 @@ func (s *AppEntitlementsService) Transfer(ctx context.Context, id string, body *
 // 需要范围 `app.entitlements:write`。English: changes a template of the calling app.
 //
 // 已发出的权益不受影响（权益是发放时的副本）。别的应用的模板是 403 `forbidden`。种类建立后不能改。带 `K3-Dry-Run: 1` 只预演。
+//
+// WithDryRun() sends the K3-Dry-Run header.
 func (s *AppEntitlementsService) UpdateTemplate(ctx context.Context, id string, body *AppEntitlementTemplateRequest, opts ...CallOption) (*AppEntitlementTemplate, error) {
 	path := "/entitlements/templates/" + url.PathEscape(id)
 	var q url.Values
@@ -953,6 +1327,8 @@ func (s *AppEntitlementsService) UpdateTemplate(ctx context.Context, id string, 
 // 需要范围 `app.entitlements:write`。English: undoes a redemption of a grant of the app's own template; the times come back through the ledger.
 //
 // 核销单所用的权益不是本应用的是 403 `forbidden`。正文必须是 JSON 对象，`reason` 可省略。
+//
+// WithDryRun() sends the K3-Dry-Run header.
 func (s *AppEntitlementsService) VoidRedemption(ctx context.Context, id string, body *AppEntitlementReasonRequest, opts ...CallOption) (*AppEntitlementRedeemResult, error) {
 	path := "/entitlements/redemptions/" + url.PathEscape(id) + "/void"
 	var q url.Values
@@ -1003,6 +1379,8 @@ type AppEventsService struct{ c *Client }
 // 需要范围 `app.events:emit`。English: writes one open event of the app into the platform's outbox and starts its delivery.
 //
 // `type` 必须是本应用在清单 `events.emits` 里声明的事件类型，并以 `{本应用 id}.` 开头，否则 403 `forbidden`。`key` 必填（最多 200 字符）：同一个键就是同一个事件。`customer` 是事件涉及的客户，`data` 是事件内容。返回 202。
+//
+// **应用之间的事件**（opv2 J2 ②）：同一个事务里，事件也写进平台的发件箱，送给本租户里装了并开着、在清单 `services[]` 里声明了触发器 `event:{type}` 的应用（见 webhook `event:{app}.{what}`），至少一次，幂等键是 `appevt:{本应用 id}:{key}`（超过 128 字符时用摘要）。`type` 同时是平台登记的开放事件、且有 `customer` 时，才另外送给集成的 webhook。`data` 最多 16 KiB（JSON），超过返回 422；事件只用 id 指代人和记录，不放手机号、姓名。清单里声明了的类型只由声明它的应用发布：同名的审计动作不再作为事件送给服务。
 func (s *AppEventsService) Emit(ctx context.Context, body *AppEmitRequest, opts ...CallOption) (*AppEmitAccepted, error) {
 	path := "/events/emit"
 	var q url.Values
@@ -1227,6 +1605,8 @@ func (s *AppOptionsService) Get(ctx context.Context, list string, p *AppOptionsG
 // 需要范围 `app.options:write`。English: replaces the whole list (`items`), or adds one option (`add`).
 //
 // `items` 与 `add` 至少给一个。列表的声明（`title`、`maxLen`、`defaults`）每次随调用带上。带 `K3-Dry-Run: 1` 时只检查，不保存。返回改动前（`old`）和改动后（`now`）的列表。
+//
+// WithDryRun() sends the K3-Dry-Run header.
 func (s *AppOptionsService) Put(ctx context.Context, list string, body *AppOptionsRequest, opts ...CallOption) (*AppOptionsSaved, error) {
 	path := "/options/" + url.PathEscape(list)
 	var q url.Values
@@ -1245,8 +1625,80 @@ func (s *AppOptionsService) Put(ctx context.Context, list string, body *AppOptio
 	return &out, nil
 }
 
+// AppOrgService is the org resource of the app API.
+type AppOrgService struct{ c *Client }
+
+// 一个人所在的部门和被指派的角色
+// 需要范围 `app.directory:read`。English: the department chain of a person and the ids of the tenant roles assigned to them.
+//
+// `units` 先是这个人自己的部门，再是逐级向上的父部门，直到根；然后是他被任命的各部门及其上级。没有部门或角色时是 `[]`。缺 `user` 是 422。
+func (s *AppOrgService) Placement(ctx context.Context, p *AppOrgPlacementParams) (*AppOrgPlacement, error) {
+	path := "/org/placement"
+	q := url.Values{}
+	if p != nil {
+		if p.User != "" {
+			q.Set("user", p.User)
+		}
+	}
+	var ro requestOptions
+	var out AppOrgPlacement
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 企业自己的角色
+// 需要范围 `app.directory:read`。English: the tenant's own roles. 没有角色时 `items` 是 `[]`。
+func (s *AppOrgService) Roles(ctx context.Context) (*AppOrgRoles, error) {
+	path := "/org/roles"
+	var q url.Values
+	var ro requestOptions
+	var out AppOrgRoles
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 企业的部门
+// 需要范围 `app.directory:read`。English: the tenant's departments, for an app's own pickers and sharing rules. 没有部门时 `items` 是 `[]`。
+func (s *AppOrgService) Units(ctx context.Context) (*AppOrgUnits, error) {
+	path := "/org/units"
+	var q url.Values
+	var ro requestOptions
+	var out AppOrgUnits
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // AppOutreachService is the outreach resource of the app API.
 type AppOutreachService struct{ c *Client }
+
+// 本企业一位客户在各渠道收到过的消息（opv2 J2 ⑤）
+// 需要范围 `app.outreach:reach`。English: the messages a customer of the tenant was sent on every channel, newest first, trimmed.
+//
+// 只限本企业的客户：别的 id 是 404 `not_found`；合并过的客户按主客户读（返回的 `customer` 是主客户）。应用自己的调用（企业令牌）可读本企业任何客户；页面会话里的人只能读他在客户应用里「查看客户」（customer.read）数据范围内的客户，范围外的与不存在一样返回 404。每条只有渠道、用途、状态、原因与时间；模板和触发来源只在本应用自己发的消息上给（`mine`）。没有消息内容、变量和接收号码。
+func (s *AppOutreachService) CustomerMessages(ctx context.Context, id string, p *AppOutreachCustomerMessagesParams) (*AppCustomerOutreachList, error) {
+	path := "/outreach/customers/" + url.PathEscape(id) + "/messages"
+	q := url.Values{}
+	if p != nil {
+		if p.Limit != nil {
+			q.Set("limit", strconv.Itoa(*p.Limit))
+		}
+		if p.Since != "" {
+			q.Set("since", p.Since)
+		}
+	}
+	var ro requestOptions
+	var out AppCustomerOutreachList
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
 
 // 读取一条触达消息的状态
 // 需要范围 `app.outreach:read`。English: one message of the outreach log, with its state and, when it was not sent, the reason.
@@ -1311,6 +1763,28 @@ func (s *AppOutreachService) ListTemplates(ctx context.Context, p *AppOutreachLi
 	var ro requestOptions
 	var out AppOutreachTemplateList
 	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 发送前问：这位客户现在能不能经这个渠道、为这个用途被触达（opv2 J2 ⑤）
+// 需要范围 `app.outreach:reach`。English: whether the customer can be reached on the channel for the purpose now; nothing is reserved.
+//
+// 按发送时同样的顺序检查，只答能或不能和第一个不能的原因：渠道没开（channel_off）；撤回了同意（withdrawn）；营销消息没有同意（no_consent）；没有手机号或 openid（no_identity）；30 天内被服务商拦截过（blocked）；营销的每日、每周频控（freq_day、freq_week）；企业每日营销上限（tenant_cap）。能触达但在免打扰时段时，`later` 是会发出的时间。只读，不占频次；真正发送时平台会再查一遍。只限本企业的客户（别的 id 404）；页面会话里的人只限他「查看客户」数据范围内的客户，范围外 404。
+func (s *AppOutreachService) Reachable(ctx context.Context, body *AppReachableRequest, opts ...CallOption) (*AppReachability, error) {
+	path := "/outreach/reachable"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppReachability
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -2114,4 +2588,9 @@ func (s *AppVisitorsService) ListIdentified(ctx context.Context, p *AppVisitorsL
 		return nil, err
 	}
 	return &out, nil
+}
+
+// WithDryRun sends K3-Dry-Run on one call. 传 1 时只预演：回答和真做一样，什么也不留下
+func WithDryRun() CallOption {
+	return withHeader("K3-Dry-Run", "1")
 }

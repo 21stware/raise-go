@@ -52,7 +52,10 @@ func Serve(a App, d Deps, keys k3.KeySource, version, base string) (http.Handler
 		}
 		mux.Handle("/k3/apps/"+a.ID()+"/", oh)
 	}
-	serveEvents(mux, a, d, m) // tenant.deleted, site.deleted (ADR-0130 §2.5)
+	serveEvents(mux, a, d, m)    // tenant.deleted, site.deleted (ADR-0130 §2.5)
+	serveSchedules(mux, a, d, m) // the services that run on the platform's clock
+	serveAppEvents(mux, a, d, m) // the services of other apps' events
+	serveConsent(mux, a, d, m)   // the service of the customers' consent changes
 	decl := m.Providers
 	if p, ok := a.(DealHandling); ok && decl.Has("deals") {
 		if dh := p.HandlesDeals(d); dh != nil {

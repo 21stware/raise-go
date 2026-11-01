@@ -59,6 +59,11 @@ const (
 	ViaEvent      = "event"
 	ViaSiteAction = "site-action"
 	ViaProvider   = "provider"
+	// ViaMCP marks the assertion the platform signs when it forwards a tool call of its MCP bridge to the App's own MCP server (the
+	// service of trigger "mcp", ADR-0130 §2.7 item 6). Sub, Name and Roles are the person the external agent acts for, Delegated is
+	// always true and Service names the App's MCP service. It reads and drafts only: the App must not change anything because of it;
+	// a change the tool wants is a draft for that person (POST /app/v1/drafts with "for": Sub), which the person applies.
+	ViaMCP = "mcp"
 )
 
 // CallTTL is how long an assertion of the platform's call to an App lives (ADR-0130 §2.3: five minutes).

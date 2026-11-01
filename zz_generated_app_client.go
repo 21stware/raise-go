@@ -21,6 +21,7 @@ type AppAPI struct {
 	Models        *AppModelsService
 	Notify        *AppNotifyService
 	Options       *AppOptionsService
+	Org           *AppOrgService
 	Outreach      *AppOutreachService
 	Pay           *AppPayService
 	Realtime      *AppRealtimeService
@@ -51,6 +52,7 @@ func newAppAPI(c *Client) *AppAPI {
 		Models:        &AppModelsService{c: c},
 		Notify:        &AppNotifyService{c: c},
 		Options:       &AppOptionsService{c: c},
+		Org:           &AppOrgService{c: c},
 		Outreach:      &AppOutreachService{c: c},
 		Pay:           &AppPayService{c: c},
 		Realtime:      &AppRealtimeService{c: c},
