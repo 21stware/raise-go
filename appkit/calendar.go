@@ -25,7 +25,8 @@ type CalendarProjection struct {
 
 // CalendarPush hands one push of the app's calendar projection to /app/v1/calendar/projections (ADR-0130 §3.2 H7). A later version
 // wins; the answer is the calendar item's id, or "stale" when a newer push was applied already. item nil cancels the projection.
-// The kit's outbox has no handler registry yet, so the app calls this itself: the push is not queued in its transaction.
+// It is the outbox's Deps.CalendarAPI: an app queues its pushes in its own transaction with Deps.CalendarUpsert / CalendarCancel
+// (calendar_outbox.go) and the outbox hands them here, as the platform's calendar.RegisterRemote does for an app in its kit.
 func (cl *Client) CalendarPush(ctx context.Context, tenant, ref string, version int64, item *CalendarProjection) (string, error) {
 	var out struct {
 		Result string `json:"result"`

@@ -110,6 +110,42 @@ type RealtimeDocDecl struct {
 	Resource string `json:"resource"`
 	// Guard: the platform asks the App (providers.realtimeGuard) before an update of such a document is written.
 	Guard bool `json:"guard,omitempty"`
+	// Store is the namespace the documents of this kind live in (realtime_doc.app); "" is the App's own id. Another App's id shares
+	// that App's documents of this kind: the platform accepts it only when the App named by Store has installed a version that
+	// declares the same kind with the same Store and the same codec (both Apps opt in), and both Apps belong to the same developer
+	// organisation (checked when a version is submitted and again whenever the platform opens the kind). Each App's people are still
+	// judged by its own Resource: sharing a namespace never widens one App's access to the other's resource types.
+	Store string `json:"store,omitempty"`
+	// Admit is one of the App's permission points (permissions[].id) a person must hold to open a sync connection of this kind; ""
+	// lets in anyone the app gateway lets in.
+	Admit string `json:"admit,omitempty"`
+	// Topics are declared resource types (resources[].type) whose changes a sync client may hear: it subscribes to "<type>:<id>" and
+	// is admitted when its level on that resource in the access kernel is at least view. Any other topic is refused. The App
+	// announces a change with POST /app/v1/realtime/topics/{topic}/publish.
+	Topics []string `json:"topics,omitempty"`
+}
+
+// RealtimeStore is the namespace of a kind's documents: Store, else the App's id.
+func (d RealtimeDocDecl) RealtimeStore(app string) string {
+	if d.Store != "" {
+		return d.Store
+	}
+	return app
+}
+
+// isStoreName reports whether s can name a real-time namespace (the platform's rule for realtime_doc.app: a lowercase letter, then
+// lowercase letters, digits and _, at most 31).
+func isStoreName(s string) bool {
+	if s == "" || len(s) > 31 || s[0] < 'a' || s[0] > 'z' {
+		return false
+	}
+	for i := 1; i < len(s); i++ {
+		c := s[i]
+		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_') {
+			return false
+		}
+	}
+	return true
 }
 
 // RealtimeCodecs are the codecs an App may name.
@@ -145,6 +181,10 @@ func (m *Manifest) validateRealtime() []string {
 	for _, r := range m.Resources {
 		types[r.Type] = true
 	}
+	perms := map[string]bool{}
+	for _, p := range m.Permissions {
+		perms[p.ID] = true
+	}
 	kinds := map[string]bool{}
 	guarded := false
 	for i, d := range m.Realtime.Docs {
@@ -171,6 +211,22 @@ func (m *Manifest) validateRealtime() []string {
 		}
 		if !types[d.Resource] {
 			errs = append(errs, fmt.Sprintf("%s: resource %q is not a declared resources[].type", at, d.Resource))
+		}
+		if d.Store != "" && (!isIdent(d.Store) || !isStoreName(d.Store)) {
+			errs = append(errs, fmt.Sprintf("%s: store %q must be an app id (a lowercase letter, then lowercase letters, digits and _, at most 31)", at, d.Store))
+		}
+		if d.Admit != "" && !perms[d.Admit] {
+			errs = append(errs, fmt.Sprintf("%s: admit %q is not a declared permissions[].id", at, d.Admit))
+		}
+		seenTopic := map[string]bool{}
+		for _, tp := range d.Topics {
+			if !types[tp] {
+				errs = append(errs, fmt.Sprintf("%s: topic %q is not a declared resources[].type", at, tp))
+			}
+			if seenTopic[tp] {
+				errs = append(errs, fmt.Sprintf("%s: topic %q listed twice", at, tp))
+			}
+			seenTopic[tp] = true
 		}
 		guarded = guarded || d.Guard
 	}

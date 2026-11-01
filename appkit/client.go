@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -35,6 +36,9 @@ type Client struct {
 
 // Customers is the customer centre (/app/v1/customers).
 func (cl *Client) Customers() CustomerClient { return customers{cl} }
+
+// CustomerCentre is the whole customer centre (/app/v1/customers): Customers with the lookup, the list, the timeline and the writes.
+func (cl *Client) CustomerCentre() CustomerCentre { return customers{cl} }
 
 // Visitors is the site visitors (/app/v1/site-visitors).
 func (cl *Client) Visitors() SiteVisitors { return visitors{cl} }
@@ -150,7 +154,7 @@ func (cl *Client) call(ctx context.Context, c Caller, method, path string, query
 	if err != nil {
 		return err
 	}
-	if err := mapStatus(rep.status, rep.body); err != nil {
+	if err := mapStatus(rep.status, rep.hdr, rep.body); err != nil {
 		return err
 	}
 	if out == nil || rep.status == http.StatusNoContent || len(bytes.TrimSpace(rep.body)) == 0 {
@@ -162,7 +166,8 @@ func (cl *Client) call(ctx context.Context, c Caller, method, path string, query
 	return nil
 }
 
-func mapStatus(status int, body []byte) error {
+// mapStatus maps an answer that is not 2xx to the sentinels or an *HTTPError; hdr gives the HTTPError its Retry-After.
+func mapStatus(status int, hdr http.Header, body []byte) error {
 	if status >= 200 && status < 300 {
 		return nil
 	}
@@ -181,7 +186,7 @@ func mapStatus(status int, body []byte) error {
 		if msg == "" {
 			msg = http.StatusText(status)
 		}
-		return &HTTPError{Status: status, Message: msg}
+		return &HTTPError{Status: status, Message: msg, RetryAfter: retryAfter(hdr.Get("Retry-After"), time.Now())}
 	}
 	return nil
 }
@@ -258,7 +263,7 @@ func (a access) Access(ctx context.Context, tenant, subject string, platformRole
 	if err != nil {
 		return AccessResult{}, err
 	}
-	if err := mapStatus(rep.status, rep.body); err != nil {
+	if err := mapStatus(rep.status, rep.hdr, rep.body); err != nil {
 		return AccessResult{}, err
 	}
 	if err := refuseOtherTenant(rep.hdr, tenant); err != nil {
@@ -280,7 +285,7 @@ func (a access) UnitOf(ctx context.Context, tenant, subject string) (string, err
 	if err != nil {
 		return "", err
 	}
-	if err := mapStatus(rep.status, rep.body); err != nil {
+	if err := mapStatus(rep.status, rep.hdr, rep.body); err != nil {
 		return "", err
 	}
 	if err := refuseOtherTenant(rep.hdr, tenant); err != nil {
@@ -307,7 +312,7 @@ func (d directory) Members(ctx context.Context, tenant string) ([]Member, error)
 	if err != nil {
 		return nil, err
 	}
-	if err := mapStatus(rep.status, rep.body); err != nil {
+	if err := mapStatus(rep.status, rep.hdr, rep.body); err != nil {
 		return nil, err
 	}
 	if err := refuseOtherTenant(rep.hdr, tenant); err != nil {
@@ -323,7 +328,7 @@ func (d directory) Members(ctx context.Context, tenant string) ([]Member, error)
 
 type customers struct{ cl *Client }
 
-var _ CustomerClient = customers{}
+var _ CustomerCentre = customers{}
 
 func (c customers) Resolve(ctx context.Context, caller Caller, req CustomerResolveReq) (CustomerRef, error) {
 	var ref CustomerRef
@@ -352,6 +357,102 @@ func (c customers) Touch(ctx context.Context, caller Caller, req CustomerTouchRe
 	}
 	err := c.cl.call(ctx, caller, "POST", "/app/v1/customers/touch", nil, req, &out)
 	return out.Written, err
+}
+
+const custBase = "/app/v1/customers"
+
+func (c customers) Find(ctx context.Context, caller Caller, kind, value string) (*CustomerView, error) {
+	var v CustomerView
+	err := c.cl.call(ctx, caller, "GET", custBase+"/find", url.Values{"kind": {kind}, "value": {value}}, nil, &v)
+	if err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
+
+// List: the platform evaluates the grant of the person behind caller (the page session); the app's own call lists the whole tenant.
+func (c customers) List(ctx context.Context, caller Caller, q CustomerQuery) (CustomerPage, error) {
+	v := url.Values{}
+	set := func(k, s string) {
+		if s != "" {
+			v.Set(k, s)
+		}
+	}
+	set("q", q.Q)
+	set("stage", q.Stage)
+	set("tag", q.Tag)
+	set("owner", q.Owner)
+	set("source", q.Source)
+	if q.Hint {
+		v.Set("hint", "true")
+	}
+	if q.WeComPending {
+		v.Set("wecomPending", "true")
+	}
+	if q.Limit > 0 {
+		v.Set("limit", strconv.Itoa(q.Limit))
+	}
+	if q.Offset > 0 {
+		v.Set("offset", strconv.Itoa(q.Offset))
+	}
+	var p CustomerPage
+	err := c.cl.call(ctx, caller, "GET", custBase, v, nil, &p)
+	if err == nil && p.Items == nil {
+		p.Items = []CustomerSummary{}
+	}
+	return p, err
+}
+
+func (c customers) Timeline(ctx context.Context, caller Caller, id string, limit int, before int64) ([]CustomerTouch, error) {
+	v := url.Values{}
+	if limit > 0 {
+		v.Set("limit", strconv.Itoa(limit))
+	}
+	if before > 0 {
+		v.Set("before", strconv.FormatInt(before, 10))
+	}
+	var out struct {
+		Items []CustomerTouch `json:"items"`
+	}
+	if err := c.cl.call(ctx, caller, "GET", custBase+"/"+pathEscape(id)+"/timeline", v, nil, &out); err != nil {
+		return nil, err
+	}
+	if out.Items == nil {
+		out.Items = []CustomerTouch{}
+	}
+	return out.Items, nil
+}
+
+func (c customers) Rename(ctx context.Context, caller Caller, id, name string) error {
+	return c.cl.call(ctx, caller, "POST", custBase+"/"+pathEscape(id)+"/rename", nil, map[string]string{"name": name}, nil)
+}
+
+func (c customers) Link(ctx context.Context, caller Caller, customer, ref string) error {
+	return c.cl.call(ctx, caller, "POST", custBase+"/"+pathEscape(customer)+"/links", nil, map[string]string{"ref": ref}, nil)
+}
+
+func (c customers) SetOwner(ctx context.Context, caller Caller, id, owner, ownerUnit string) error {
+	return c.cl.call(ctx, caller, "POST", custBase+"/"+pathEscape(id)+"/owner", nil, map[string]string{"owner": owner, "ownerUnit": ownerUnit}, nil)
+}
+
+func (c customers) MarkDealt(ctx context.Context, caller Caller, id string, at time.Time) error {
+	body := map[string]any{}
+	if !at.IsZero() {
+		body["at"] = at.UTC()
+	}
+	return c.cl.call(ctx, caller, "POST", custBase+"/"+pathEscape(id)+"/dealt", nil, body, nil)
+}
+
+func (c customers) Merge(ctx context.Context, caller Caller, a, b string) (string, error) {
+	var out struct {
+		Primary string `json:"primary"`
+	}
+	err := c.cl.call(ctx, caller, "POST", custBase+"/"+pathEscape(a)+"/merge", nil, map[string]string{"other": b}, &out)
+	return out.Primary, err
+}
+
+func (c customers) Erase(ctx context.Context, caller Caller, id string) error {
+	return c.cl.call(ctx, caller, "POST", custBase+"/"+pathEscape(id)+"/erase", nil, struct{}{}, nil)
 }
 
 // ---- visitors ----
@@ -472,4 +573,23 @@ func (cl *Client) Tenants(ctx context.Context, c Caller) ([]string, error) {
 	}
 	err := cl.call(ctx, c, "GET", "/app/v1/installations", nil, nil, &out)
 	return out.Tenants, err
+}
+
+// retryAfter reads a Retry-After header: delay-seconds or an HTTP date (RFC 9110 §10.2.3); 0 when it is absent, unreadable or in the
+// past.
+func retryAfter(v string, now time.Time) time.Duration {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0
+	}
+	if sec, err := strconv.ParseInt(v, 10, 64); err == nil {
+		if sec <= 0 || sec > math.MaxInt64/int64(time.Second) {
+			return 0
+		}
+		return time.Duration(sec) * time.Second
+	}
+	if at, err := http.ParseTime(v); err == nil && at.After(now) {
+		return at.Sub(now)
+	}
+	return 0
 }

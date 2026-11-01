@@ -206,7 +206,7 @@ func TestApprovalsCalls(t *testing.T) {
 		t.Fatalf("of: %+v %v %+v", v, err, *s)
 	}
 	ws, err := a.Waiting(ctx, tc, "x.leave", 20)
-	if err != nil || len(ws) != 1 || ws[0].Task.ID != "tk1" || s.path != "/app/v1/approvals/waiting" || s.query != "kind=x.leave" {
+	if err != nil || len(ws) != 1 || ws[0].Task.ID != "tk1" || s.path != "/app/v1/approvals/waiting" || s.query != "kind=x.leave&limit=20" {
 		t.Fatalf("waiting: %+v %v %+v", ws, err, *s)
 	}
 	v, err = a.Act(ctx, tc, "tk1", k3.ApprovalAct{Action: "approve", Version: 2, Comment: "ok"})

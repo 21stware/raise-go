@@ -80,7 +80,7 @@ func (m *ModelClient) Transcribe(ctx context.Context, c Caller, audio []byte, mi
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, responseMax))
-	if err := mapStatus(resp.StatusCode, body); err != nil {
+	if err := mapStatus(resp.StatusCode, resp.Header, body); err != nil {
 		return "", modelErr(err)
 	}
 	var out modelText

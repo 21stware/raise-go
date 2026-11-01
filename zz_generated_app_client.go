@@ -10,6 +10,7 @@ type AppAPI struct {
 	Blobs         *AppBlobsService
 	Calendar      *AppCalendarService
 	Customers     *AppCustomersService
+	Deals         *AppDealsService
 	Directory     *AppDirectoryService
 	Drafts        *AppDraftsService
 	Entitlements  *AppEntitlementsService
@@ -24,6 +25,7 @@ type AppAPI struct {
 	Org           *AppOrgService
 	Outreach      *AppOutreachService
 	Pay           *AppPayService
+	Peers         *AppPeersService
 	Realtime      *AppRealtimeService
 	Resources     *AppResourcesService
 	Secrets       *AppSecretsService
@@ -41,6 +43,7 @@ func newAppAPI(c *Client) *AppAPI {
 		Blobs:         &AppBlobsService{c: c},
 		Calendar:      &AppCalendarService{c: c},
 		Customers:     &AppCustomersService{c: c},
+		Deals:         &AppDealsService{c: c},
 		Directory:     &AppDirectoryService{c: c},
 		Drafts:        &AppDraftsService{c: c},
 		Entitlements:  &AppEntitlementsService{c: c},
@@ -55,6 +58,7 @@ func newAppAPI(c *Client) *AppAPI {
 		Org:           &AppOrgService{c: c},
 		Outreach:      &AppOutreachService{c: c},
 		Pay:           &AppPayService{c: c},
+		Peers:         &AppPeersService{c: c},
 		Realtime:      &AppRealtimeService{c: c},
 		Resources:     &AppResourcesService{c: c},
 		Secrets:       &AppSecretsService{c: c},

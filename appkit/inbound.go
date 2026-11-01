@@ -63,7 +63,7 @@ func Inbound(keys k3.KeySource, app string, next http.Handler) http.Handler {
 				ctx = WithPersonToken(ctx, tok, c.Tenant)
 			}
 		} else if a := r.Header.Get(k3.HeaderAssertion); a != "" && strings.HasPrefix(r.URL.Path, "/k3/") && !strings.HasPrefix(r.URL.Path, "/k3/apps/") {
-			pc, ok := verifyCall(ctx, r, keys, app, a)
+			pc, ok := verifyCall(ctx, r, keys, app, a, platformVias)
 			if !ok {
 				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "the platform's assertion is not valid"})
 				return
@@ -77,10 +77,11 @@ func Inbound(keys k3.KeySource, app string, next http.Handler) http.Handler {
 // platformVias are the assertions of the platform's calls Inbound accepts (ops are the ops handler's).
 var platformVias = []string{k3.ViaEvent, k3.ViaSiteAction, k3.ViaProvider, k3.ViaService}
 
-// verifyCall checks the platform's assertion of a call and that it was signed for exactly this body. The body is read and put back.
-func verifyCall(ctx context.Context, r *http.Request, keys k3.KeySource, app, tok string) (Platform, bool) {
+// verifyCall checks the platform's assertion of a call (its via one of vias) and that it was signed for exactly this body. The body is
+// read and put back.
+func verifyCall(ctx context.Context, r *http.Request, keys k3.KeySource, app, tok string, vias []string) (Platform, bool) {
 	var c k3.AssertionClaims
-	if err := k3.Verify(ctx, tok, k3.TypAssertion, keys, &c); err != nil || !c.Aud.Contains(app) || c.Tenant == "" || !slices.Contains(platformVias, c.Via) {
+	if err := k3.Verify(ctx, tok, k3.TypAssertion, keys, &c); err != nil || !c.Aud.Contains(app) || c.Tenant == "" || !slices.Contains(vias, c.Via) {
 		return Platform{}, false
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))

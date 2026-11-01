@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -49,19 +50,47 @@ type EntitlementClient interface {
 	Dry() EntitlementClient
 }
 
+// EntitlementCentre is the whole entitlement service an app reaches over /app/v1/entitlements (ADR-0130 P11): EntitlementClient with
+// the Granters' names, choices and refunds, the template list and the voucher lookup (the platform's firstparty.EntitlementClient).
+// EntitlementClient stays the narrow contract other implementations keep.
+type EntitlementCentre interface {
+	EntitlementClient
+	// GranterNames lists the names Granters are registered under, sorted.
+	GranterNames(ctx context.Context, c Caller) ([]string, error)
+	// GranterChoices lists what the Granter registered under name can issue; empty when it is unknown or does not list.
+	GranterChoices(ctx context.Context, c Caller, name string) ([]GranterChoice, error)
+	// GranterRefund asks the Granter registered under name to take back what it issued: ErrNoGranter when none, ErrNotRefundable
+	// when it does not take things back. Preview answers the amount and takes nothing back (a dry client always previews); Key makes
+	// it idempotent.
+	GranterRefund(ctx context.Context, c Caller, name string, req GranterRefund) (GranterRefundResult, error)
+	// Templates lists the tenant's templates (f.OwnerApp: one app's; f.ActiveOnly: the active ones).
+	Templates(ctx context.Context, c Caller, f TemplateFilter) ([]EntTemplate, error)
+	// ByCode finds a voucher by its code (offline redemption); an unknown and a malformed code answer the same ErrNotFound.
+	ByCode(ctx context.Context, c Caller, code string) (EntGrant, error)
+}
+
 // EntitlementClient answers d.EntitlementAPI (Client.Entitlements); nil when it is not wired.
 func (d Deps) EntitlementClient() EntitlementClient { return d.EntitlementAPI }
+
+// EntitlementCentre is d.EntitlementAPI when it is the whole service (Client.Entitlements is one); nil otherwise.
+func (d Deps) EntitlementCentre() EntitlementCentre {
+	ec, _ := d.EntitlementAPI.(EntitlementCentre)
+	return ec
+}
 
 // Entitlements is the entitlement service over /app/v1/entitlements (ADR-0130 §3.2 H4), with the meaning of the platform's in-process
 // client: a refusal in words comes back as *EntRefused, a dry client sends K3-Dry-Run: 1.
 func (cl *Client) Entitlements() EntitlementClient { return ents{cl: cl} }
+
+// EntitlementCentre is Entitlements with the P11 calls (EntitlementCentre); its Dry client is one too.
+func (cl *Client) EntitlementCentre() EntitlementCentre { return ents{cl: cl} }
 
 type ents struct {
 	cl  *Client
 	dry bool
 }
 
-var _ EntitlementClient = ents{}
+var _ EntitlementCentre = ents{}
 
 func (e ents) Dry() EntitlementClient { e.dry = true; return e }
 
@@ -79,7 +108,7 @@ func (e ents) call(ctx context.Context, c Caller, method, path string, q url.Val
 			return r
 		}
 	}
-	if err := mapStatus(rep.status, rep.body); err != nil {
+	if err := mapStatus(rep.status, rep.hdr, rep.body); err != nil {
 		return err
 	}
 	if out == nil || len(rep.body) == 0 {
@@ -152,6 +181,71 @@ func (e ents) HasGranter(name string) bool {
 		}
 	}
 	return false
+}
+
+func (e ents) GranterNames(ctx context.Context, c Caller) ([]string, error) {
+	var out struct {
+		Names []string `json:"names"`
+	}
+	if err := e.call(ctx, c, "GET", entBase+"/granters", nil, nil, &out); err != nil {
+		return nil, err
+	}
+	if out.Names == nil {
+		out.Names = []string{}
+	}
+	return out.Names, nil
+}
+
+func (e ents) GranterChoices(ctx context.Context, c Caller, name string) ([]GranterChoice, error) {
+	var out struct {
+		Data []GranterChoice `json:"data"`
+	}
+	if err := e.call(ctx, c, "GET", entBase+"/granters/"+pathEscape(name)+"/choices", nil, nil, &out); err != nil {
+		return nil, err
+	}
+	if out.Data == nil {
+		out.Data = []GranterChoice{}
+	}
+	return out.Data, nil
+}
+
+// GranterRefund: a dry client previews (the platform's answer to K3-Dry-Run is a preview too); the platform's words for "nobody
+// issues that" and "it does not take back" come back as ErrNoGranter and ErrNotRefundable.
+func (e ents) GranterRefund(ctx context.Context, c Caller, name string, req GranterRefund) (r GranterRefundResult, err error) {
+	req.Preview = req.Preview || e.dry
+	err = e.call(ctx, c, "POST", entBase+"/granters/"+pathEscape(name)+"/refunds", nil, req, &r)
+	switch {
+	case errors.Is(err, ErrNotFound) && strings.Contains(err.Error(), "no app issues"):
+		return r, fmt.Errorf("%w: %s", ErrNoGranter, name)
+	case errors.Is(err, ErrConflict) && strings.Contains(err.Error(), ErrNotRefundable.Error()):
+		return r, ErrNotRefundable
+	}
+	return r, err
+}
+
+func (e ents) Templates(ctx context.Context, c Caller, f TemplateFilter) ([]EntTemplate, error) {
+	q := url.Values{}
+	if f.OwnerApp != "" {
+		q.Set("ownerApp", f.OwnerApp)
+	}
+	if f.ActiveOnly {
+		q.Set("activeOnly", "true")
+	}
+	var out struct {
+		Data []EntTemplate `json:"data"`
+	}
+	if err := e.call(ctx, c, "GET", entBase+"/templates", q, nil, &out); err != nil {
+		return nil, err
+	}
+	if out.Data == nil {
+		out.Data = []EntTemplate{}
+	}
+	return out.Data, nil
+}
+
+func (e ents) ByCode(ctx context.Context, c Caller, code string) (g EntGrant, err error) {
+	err = e.call(ctx, c, "GET", entBase+"/codes/"+pathEscape(code), nil, nil, &g)
+	return
 }
 
 func (e ents) Get(ctx context.Context, c Caller, id string) (g EntGrant, err error) {

@@ -2,7 +2,7 @@
 
 // Package provide is what an App answers when the platform asks (ADR-0130 §2.4): the contracts of the providers an App declares in
 // its manifest (k3.ProvidersDecl) — its data sources, links, people, passages and backlinks, holdings, agenda, work cards, the
-// redemption desk and the till, referral codes, the offboarding handover, resource holds and the customer a phone number is under —
+// redemption desk and the till, referral codes, the offboarding handover, resource holds, the customer a phone number is under and its system tables (the 多维表's sys_* tables) —
 // and the Caller they answer for.
 //
 // An App in the platform's process implements these interfaces and the platform calls it directly; an App in a process of its own

@@ -67,17 +67,25 @@ func (bi blobInfoJSON) info() ObjectInfo {
 	return ObjectInfo{Key: bi.Key, Size: bi.Size, ContentType: bi.ContentType, ModTime: bi.ModTime}
 }
 
-// objectPath is the path of a key, each segment escaped.
-func objectPath(route, key string) string {
+// objectPath is the path of a key, each segment escaped. A key with an empty, "." or ".." segment is refused here, as the platform
+// refuses it: a URL would resolve the segment away and name another object.
+func objectPath(route, key string) (string, error) {
 	segs := strings.Split(key, "/")
 	for i, s := range segs {
+		if s == "" || s == "." || s == ".." {
+			return "", fmt.Errorf("%w: the key has an empty, \".\" or \"..\" segment", ErrInvalid)
+		}
 		segs[i] = url.PathEscape(s)
 	}
-	return "/app/v1/blobs/" + route + "/" + strings.Join(segs, "/")
+	return "/app/v1/blobs/" + route + "/" + strings.Join(segs, "/"), nil
 }
 
 func (b blobStore) Put(ctx context.Context, key string, r io.Reader, size int64, contentType string) error {
-	resp, err := b.cl.stream(ctx, b.c, "PUT", objectPath("objects", key), nil, r, size, contentType)
+	path, err := objectPath("objects", key)
+	if err != nil {
+		return err
+	}
+	resp, err := b.cl.stream(ctx, b.c, "PUT", path, nil, r, size, contentType)
 	if err != nil {
 		return err
 	}
@@ -85,7 +93,11 @@ func (b blobStore) Put(ctx context.Context, key string, r io.Reader, size int64,
 }
 
 func (b blobStore) Get(ctx context.Context, key string) (io.ReadCloser, ObjectInfo, error) {
-	resp, err := b.cl.stream(ctx, b.c, "GET", objectPath("objects", key), nil, nil, 0, "")
+	path, err := objectPath("objects", key)
+	if err != nil {
+		return nil, ObjectInfo{}, err
+	}
+	resp, err := b.cl.stream(ctx, b.c, "GET", path, nil, nil, 0, "")
 	if err != nil {
 		return nil, ObjectInfo{}, err
 	}
@@ -103,15 +115,23 @@ func (b blobStore) Get(ctx context.Context, key string) (io.ReadCloser, ObjectIn
 }
 
 func (b blobStore) Head(ctx context.Context, key string) (ObjectInfo, error) {
+	path, err := objectPath("meta", key)
+	if err != nil {
+		return ObjectInfo{}, err
+	}
 	var bi blobInfoJSON
-	if err := b.cl.call(ctx, b.c, "GET", objectPath("meta", key), nil, nil, &bi); err != nil {
+	if err := b.cl.call(ctx, b.c, "GET", path, nil, nil, &bi); err != nil {
 		return ObjectInfo{}, objectNotFound(err)
 	}
 	return bi.info(), nil
 }
 
 func (b blobStore) Delete(ctx context.Context, key string) error {
-	return b.cl.call(ctx, b.c, "DELETE", objectPath("objects", key), nil, nil, nil)
+	path, err := objectPath("objects", key)
+	if err != nil {
+		return err
+	}
+	return b.cl.call(ctx, b.c, "DELETE", path, nil, nil, nil)
 }
 
 func (b blobStore) List(ctx context.Context, prefix string) ([]ObjectInfo, error) {
@@ -179,7 +199,7 @@ func replyErr(resp *http.Response) error {
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-	return objectNotFound(mapStatus(resp.StatusCode, body))
+	return objectNotFound(mapStatus(resp.StatusCode, resp.Header, body))
 }
 
 // stream is do for bytes: the body is r (size bytes of type ct; nil for none) and the answer is left open for the caller.

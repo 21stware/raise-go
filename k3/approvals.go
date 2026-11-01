@@ -59,6 +59,10 @@ type ApprovalKindDecl struct {
 	Template   json.RawMessage `json:"template"`
 	// Disabled lists the actions the App cannot honour (return, transfer, addsign): no process of the kind may offer them.
 	Disabled []string `json:"disabled,omitempty"`
+	// Route is the App's page of one object ("/refund-requests/{id}"; {id} is the part of the subject after Subject): a notice about an
+	// approval of the kind is sent in the App's name and opens that page, where the App shows the approval. Empty: the notice speaks
+	// as the approval service and opens the approval in the approval app.
+	Route string `json:"route,omitempty"`
 }
 
 // ApprovalLine is one line of the summary an approver reads without opening the object.

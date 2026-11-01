@@ -89,6 +89,18 @@ type Deps struct {
 	Sites Sites
 	// Stores is the organisation's stores (Client.Stores). Nil when it is not wired.
 	Stores OrgStores
+	// Org is the tenant's departments and roles (Client.Org), for the app's own access lists and pickers. Nil when it is not wired.
+	Org OrgChart
+	// Flat is the access kernel's flat lists of the app's types whose rules it keeps (Client.Flat). Nil when it is not wired.
+	Flat FlatGrants
+	// PeersAPI is the other apps' providers (Client.Peers: the platform's /app/v1/peers); Peers() answers it. Nil when it is not wired.
+	PeersAPI Peers
+	// DealsAPI is where the app hands its deal events (Client.Deals: the platform's POST /app/v1/deals, which queues them for the
+	// subscribers); EnqueueDeal queues one row in the app's own outbox for it. Nil: the app's deal events go nowhere.
+	DealsAPI func(ctx context.Context, c Caller, ev DealEvent) error
+	// CalendarAPI is where the app's calendar pushes go (Client.CalendarPush: the platform's /app/v1/calendar/projections); CalendarUpsert
+	// and CalendarCancel queue them in the app's own outbox, in its transaction. Nil: they wait in the outbox.
+	CalendarAPI func(ctx context.Context, tenant, ref string, version int64, item *CalendarProjection) (string, error)
 	// Shutdown takes hooks the process runs when it stops (Every's jobs register their own). Nil-safe.
 	Shutdown *ShutdownHooks
 	Log      *slog.Logger

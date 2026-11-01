@@ -311,3 +311,42 @@ type EntRefusal struct {
 
 func (e *EntRefused) Error() string { return e.Message }
 func (e *EntRefused) Unwrap() error { return ErrInvalid }
+
+// TemplateFilter narrows EntitlementCentre.Templates: OwnerApp keeps one app's templates, ActiveOnly the ones on sale.
+type TemplateFilter struct {
+	OwnerApp   string
+	ActiveOnly bool
+}
+
+// GranterChoice is one thing a Granter can issue: the param it goes in and its value, with the words a person picks it by
+// ("术后康复 20 次", "20 次 · 180 天"). Editors offer these instead of asking for an id (ADR-0086 §5).
+type GranterChoice struct {
+	Param   string `json:"param"`
+	Value   string `json:"value"`
+	Label   string `json:"label"`
+	Summary string `json:"summary,omitempty"`
+	// PriceCents is what it sells for, when the Granter sells it (a course package: ADR-0120 §4); an order prices a line that
+	// names the choice directly by this, never by a price the client sent. 0: not sold for a price.
+	PriceCents int64 `json:"priceCents,omitempty"`
+}
+
+// GranterRefund asks a Granter to take back what it issued (Ref) because the order that collected its money refunds it
+// (ADR-0120 §3). AmountCents nil: work out by the Granter's own rules what it is worth back now, and take it back for that;
+// otherwise take it back for exactly that amount. Preview: answer what it would be worth and take nothing back (a refund's plan).
+// Key makes it idempotent: the same Key answers the first refund's result and takes nothing back again.
+type GranterRefund struct {
+	Key         string `json:"key,omitempty"`
+	Preview     bool   `json:"preview,omitempty"`
+	Ref         string `json:"ref,omitempty"`
+	AmountCents *int64 `json:"amountCents,omitempty"`
+	Reason      string `json:"reason,omitempty"`
+}
+
+// GranterRefundResult is what a GranterRefund did: the amount it was worth back and the words for the staff.
+type GranterRefundResult struct {
+	AmountCents int64  `json:"amountCents,omitempty"`
+	Effect      string `json:"effect,omitempty"`
+}
+
+// ErrNotRefundable is returned for a Granter that does not take back what it issued.
+var ErrNotRefundable = errors.New("the granter does not take back what it issued")

@@ -2,6 +2,7 @@ package appkit
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 )
 
@@ -135,3 +136,69 @@ type CustomerClient interface {
 
 // CustomerClient is the customer centre of the app's Deps (Client.Customers; nil when it is not wired).
 func (d Deps) CustomerClient() CustomerClient { return d.CustomerAPI }
+
+// CustomerQuery filters CustomerCentre.List. Q matches the name (contains), or the masked phone / e-mail of an identity, or a whole
+// phone number; Stage is lead, customer or dormant (the effective stage); Tag a tag id; Owner a staff subject; Source the app that
+// first brought the customer.
+type CustomerQuery struct {
+	Q      string `json:"q,omitempty"`
+	Stage  string `json:"stage,omitempty"`
+	Tag    string `json:"tag,omitempty"`
+	Owner  string `json:"owner,omitempty"`
+	Source string `json:"source,omitempty"`
+	// Hint keeps only the customers that are one side of an open merge suggestion.
+	Hint bool `json:"hint,omitempty"`
+	// WeComPending keeps only the customers with a 企业微信 outside contact that could not be tied to a person (待关联).
+	WeComPending bool `json:"wecomPending,omitempty"`
+	Limit        int  `json:"limit,omitempty"`
+	Offset       int  `json:"offset,omitempty"`
+}
+
+// CustomerPage is a page of the list with the total over the same scope and filters.
+type CustomerPage struct {
+	Items []CustomerSummary `json:"items"`
+	Total int               `json:"total"`
+}
+
+// CustomerTouch is one timeline entry as read. Customer is the customer it was written for (a merged one, perhaps).
+type CustomerTouch struct {
+	ID       int64           `json:"id"`
+	Customer string          `json:"customer"`
+	Kind     string          `json:"kind"`
+	App      string          `json:"app,omitempty"`
+	Ref      string          `json:"ref,omitempty"`
+	Attrs    json.RawMessage `json:"attrs"`
+	At       time.Time       `json:"at"`
+}
+
+// CustomerCentre is the whole customer centre an app reaches over /app/v1/customers (ADR-0130 P11): CustomerClient with the lookup,
+// the list, the timeline and the writes (the platform's firstparty.CustomerClient). CustomerClient stays the narrow contract other
+// implementations keep.
+type CustomerCentre interface {
+	CustomerClient
+	// Find looks a customer up by one identity (kind "phone"; any verification state): the masked profile, ErrNotFound when none.
+	Find(ctx context.Context, c Caller, kind, value string) (*CustomerView, error)
+	// List pages the customers inside the calling person's customer.read grant (the app's own call: the whole tenant; a person
+	// without the grant: ErrForbidden). Merged and erased customers are not listed.
+	List(ctx context.Context, c Caller, q CustomerQuery) (CustomerPage, error)
+	// Timeline is the touches of the customer and of everyone merged into it, newest first; before is the id of the last touch of
+	// the previous page (0: from the newest).
+	Timeline(ctx context.Context, c Caller, id string, limit int, before int64) ([]CustomerTouch, error)
+
+	// Rename, Link, SetOwner, MarkDealt, Merge and Erase each take effect on their own (a merged id follows to its primary). A link's
+	// reference must be one of the calling app's own records (k3://<app>/…).
+	Rename(ctx context.Context, c Caller, id, name string) error
+	Link(ctx context.Context, c Caller, customer, ref string) error
+	SetOwner(ctx context.Context, c Caller, id, owner, ownerUnit string) error
+	MarkDealt(ctx context.Context, c Caller, id string, at time.Time) error
+	// Merge joins two customers and returns the primary id (the older is kept).
+	Merge(ctx context.Context, c Caller, a, b string) (string, error)
+	// Erase is final: the identity values are destroyed and every read of the customer answers ErrNotFound afterwards.
+	Erase(ctx context.Context, c Caller, id string) error
+}
+
+// CustomerCentre is d.CustomerAPI when it is the whole centre (Client.Customers is one); nil otherwise.
+func (d Deps) CustomerCentre() CustomerCentre {
+	cc, _ := d.CustomerAPI.(CustomerCentre)
+	return cc
+}

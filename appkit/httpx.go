@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/21stware/raise-go/provide"
 )
@@ -97,12 +98,14 @@ func trimSentinel(err, sentinel error, fallback string) string {
 type HTTPError struct {
 	Status  int
 	Message string
+	// RetryAfter is the platform's Retry-After of the answer (a 429 or 503: how long to wait before trying again); 0 when it sent none.
+	RetryAfter time.Duration
 }
 
 func (e *HTTPError) Error() string { return e.Message }
 
 // Status builds an HTTPError.
-func Status(code int, msg string) error { return &HTTPError{code, msg} }
+func Status(code int, msg string) error { return &HTTPError{Status: code, Message: msg} }
 
 // Decode reads a JSON body of at most max bytes (unknown fields are tolerated: clients are newer than servers).
 func Decode(w http.ResponseWriter, r *http.Request, v any, max int64) bool {

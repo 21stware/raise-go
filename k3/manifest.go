@@ -103,6 +103,14 @@ type Manifest struct {
 	// Realtime declares the App's real-time documents (ADR-0130 §2.6.1): the platform keeps them, serves their sync connection and
 	// derives their projection. Reviewed with the version.
 	Realtime *RealtimeDecl `json:"realtime,omitempty"`
+	// Content is what the App ships with itself for the platform's apps to read while it is installed (content.go): 分析's dashboard
+	// templates. Reviewed with the version.
+	Content *ContentDecl `json:"content,omitempty"`
+	// Ledger says what its postings to the books are (content.go): sales, which 经营's 营收 counts. Reviewed with the version.
+	Ledger *LedgerDecl `json:"ledger,omitempty"`
+	// SiteActionScopes are, by the name of one of SiteActions, the open scope (internal/openscope) a project must have approved to
+	// call it (ADR-0094 §4): declaring the action declares its scope. An action not named here stands for none. Reviewed with the version.
+	SiteActionScopes map[string]string `json:"siteActionScopes,omitempty"`
 }
 
 // EventsDecl is what an App says about open events.
@@ -604,6 +612,12 @@ type Entity struct {
 	Subtypes *Subtypes `json:"subtypes,omitempty"`
 	// Anchors are the places inside a record's page a link can land on (ADR-0056 §4): k3://{app}/{type}/{id}#{anchor}.
 	Anchors []Anchor `json:"anchors,omitempty"`
+	// CustomerStage is the people finder's stage of a customer of the customer centre the App links to a record of this type: "member"
+	// (a customer linked to a member is a member). Empty: a link says nothing of the stage.
+	CustomerStage string `json:"customerStage,omitempty"`
+	// HoldTitle is what a hold of the resource app for a record of this type is called to people who may not see the record
+	// (诊疗预约): the resource app's day view says 「诊疗预约（来自会员）」. Empty: 「其他应用的占用」.
+	HoldTitle string `json:"holdTitle,omitempty"`
 }
 
 // Subtypes are the two routes of an App (answered as the person, or as the agent on their behalf) that list an entity's kinds and give
@@ -844,6 +858,7 @@ func (m *Manifest) Validate() error {
 		}
 	}
 	m.validateSiteActions(add)
+	m.validateContent(add)
 	if m.Data != nil {
 		for i, f := range m.Data.Migrations {
 			if !strings.HasSuffix(f, ".sql") || strings.ContainsAny(f, "/\\") {
@@ -958,6 +973,9 @@ func (m *Manifest) Validate() error {
 					add("entities[%d].filterable.%s: unknown operator %q", i, field, op)
 				}
 			}
+		}
+		if e.CustomerStage != "" && e.CustomerStage != "member" {
+			add("entities[%d].customerStage %q: member, or leave it out", i, e.CustomerStage)
 		}
 		if st := e.Subtypes; st != nil && (!strings.HasPrefix(st.List, "/") || !strings.HasPrefix(st.Schema, "/") || !strings.Contains(st.Schema, "{subtype}")) {
 			add("entities[%d].subtypes: list and schema are paths, schema contains {subtype}", i)
@@ -1165,6 +1183,9 @@ func (m *Manifest) validateApprovals() []error {
 			if d != "return" && d != "transfer" && d != "addsign" {
 				add("kind %s: disabled may list return, transfer and addsign only", id)
 			}
+		}
+		if k.Route != "" && (!strings.HasPrefix(k.Route, "/") || strings.HasPrefix(k.Route, "//") || len(k.Route) > 200 || strings.ContainsAny(k.Route, "?#") || !strings.Contains(k.Route, "{id}")) {
+			add("kind %s: route must be a path of the App with {id} (at most 200 characters)", id)
 		}
 	}
 	return errs

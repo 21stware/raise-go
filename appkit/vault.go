@@ -69,7 +69,7 @@ func (cl *Client) tenantCall(ctx context.Context, tenant, method, path string, q
 	if err != nil {
 		return err
 	}
-	if err := mapStatus(rep.status, rep.body); err != nil {
+	if err := mapStatus(rep.status, rep.hdr, rep.body); err != nil {
 		return err
 	}
 	if err := refuseOtherTenant(rep.hdr, tenant); err != nil {

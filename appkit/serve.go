@@ -41,7 +41,8 @@ const (
 
 // Serve is the whole handler of app a running on its own, behind Inbound. What it answers for the platform is what a's manifest
 // declares (Providers, Services, SiteActions, Events) of what its code provides (DataProviding, LinkProviding, Attributing,
-// DealHandling, SiteActing, DataEventHandler, Opped); a provider a implements but does not declare is not served.
+// DealHandling, SiteActing, DataEventHandler, Opped, TableProviding, the P11 kinds' ...ing interfaces of providers.go, Granting, ApprovalAnswering,
+// Settling); a provider a implements but does not declare is not served.
 func Serve(a App, d Deps, keys k3.KeySource, version, base string) (http.Handler, error) {
 	mux := http.NewServeMux()
 	m := a.Manifest(version, base)
@@ -210,6 +211,11 @@ func Serve(a App, d Deps, keys k3.KeySource, version, base string) (http.Handler
 			})
 		}
 	}
+	serveKinds(mux, a, decl, d)        // customerAssert, people, backlinks, holdings, agenda, work, desk, till, handover, holds, holdWatch (serve_kinds.go)
+	serveTables(mux, a, decl, d)       // providers.tables (tables.go)
+	serveGranters(mux, a, m, d)        // entitlements.grantable (serve_granters.go)
+	serveApprovals(mux, a, m, d, keys) // PREPARE and DECIDED of the kinds the manifest declares (serve_approvals.go)
+	servePayments(mux, a, m, d)        // the service of event:payment (serve_payments.go)
 	mux.Handle("/", a.Handler(d))
 	return Inbound(keys, a.ID(), mux), nil
 }

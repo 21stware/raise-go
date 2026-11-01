@@ -71,6 +71,16 @@ type WorkCardDecl struct {
 	// OpenPermissions are the points it takes to open Route when they are not the card's own (今日收款 opens 经营's reports): a person
 	// without one of them sees the card, and its title is no link (never a way to a 「没有权限」 page).
 	OpenPermissions []string `json:"openPermissions,omitempty"`
+	// Roles are the business roles (by name: 前台, 康复师, 店长) whose 今日 shows the card by default, with its place there: a role the
+	// organisation has not arranged 今日 for gets every App's cards for its name, by Order (then the Apps' order). Holding the card's
+	// point still decides whether it is there.
+	Roles []WorkRole `json:"roles,omitempty"`
+}
+
+// WorkRole is a business role a card is a default of, and the card's place in that role's 今日 (1 first).
+type WorkRole struct {
+	Name  string `json:"name"`
+	Order int    `json:"order"`
 }
 
 // WorkItemKind is one kind of thing an App has waiting on people (待我审批, 指派给我的工单).
@@ -234,6 +244,13 @@ func (m *Manifest) validateWork(perms map[string]bool, add func(string, ...any))
 		}
 		if c.Route == "" && len(c.OpenPermissions) > 0 {
 			add("%s.openPermissions without a route", where)
+		}
+		roles := map[string]bool{}
+		for j, r := range c.Roles {
+			if n := strings.TrimSpace(r.Name); n == "" || len([]rune(n)) > 32 || roles[n] || r.Order < 1 || r.Order > 99 {
+				add("%s.roles[%d]: a role name (up to 32 characters, once) and an order of 1 to 99", where, j)
+			}
+			roles[strings.TrimSpace(r.Name)] = true
 		}
 	}
 	seen = map[string]bool{}

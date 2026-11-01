@@ -2,9 +2,63 @@ package appkit
 
 import (
 	"context"
+	"errors"
+	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
+
+// The payment service's refusals, as the platform's payment service names them (its payments.ErrPending …): an answer of /app/v1/pay
+// that stands for one matches it with errors.Is, and still matches the kit's own error (ErrConflict, an *HTTPError of status 503 …).
+var (
+	// ErrPayPending: the gateway did not answer; ask again with the same key in a moment (the order may exist).
+	ErrPayPending = errors.New("payments: the gateway did not answer; try again in a moment")
+	// ErrPayNotConfigured: collecting money is not set up for this channel.
+	ErrPayNotConfigured = errors.New("payments: this payment channel is not set up")
+	// ErrPayDisabled: the channel is switched off.
+	ErrPayDisabled = errors.New("payments: this payment channel is switched off")
+)
+
+// PayGatewayError is the gateway's refusal in its own words (an answer of status 502).
+type PayGatewayError struct{ Message string }
+
+func (e *PayGatewayError) Error() string { return "payments: the gateway refused: " + e.Message }
+
+// payErr is the platform's answer to a payment call with the payment refusal it stands for.
+type payErr struct{ err, sent error }
+
+func (e *payErr) Error() string   { return e.err.Error() }
+func (e *payErr) Unwrap() []error { return []error{e.err, e.sent} }
+
+// payBack maps an answer of /app/v1/pay onto the payment refusals (the platform's words say which one; internal/remoteapp's payBack
+// reads them the same way).
+func payBack(err error) error {
+	if err == nil {
+		return nil
+	}
+	var he *HTTPError
+	status, msg := 0, err.Error()
+	if errors.As(err, &he) {
+		status, msg = he.Status, he.Message
+	} else if errors.Is(err, ErrConflict) {
+		status, msg = http.StatusConflict, strings.TrimPrefix(strings.TrimPrefix(msg, ErrConflict.Error()), ": ")
+	}
+	var sent error
+	switch {
+	case status == http.StatusBadGateway && strings.HasPrefix(msg, "the payment gateway refused: "):
+		sent = &PayGatewayError{Message: strings.TrimPrefix(msg, "the payment gateway refused: ")}
+	case status == http.StatusServiceUnavailable && strings.HasPrefix(msg, "the payment gateway did not answer"):
+		sent = ErrPayPending
+	case status == http.StatusConflict && strings.HasPrefix(msg, "collecting money is not set up"):
+		sent = ErrPayNotConfigured
+	case status == http.StatusConflict && msg == "this payment channel is switched off":
+		sent = ErrPayDisabled
+	default:
+		return err
+	}
+	return &payErr{err: err, sent: sent}
+}
 
 // PayOrder is an order as the platform answers it (the JSON of its payment order), with the customer's payment page (Link) and, for a
 // JSAPI trade, the signed parameters of the bridge the app's page hands to WeChat (PayParams, JSON).
@@ -117,7 +171,7 @@ func (p *payClient) seen(o PayOrder) PayOrder {
 func (p *payClient) order(ctx context.Context, c Caller, method, path string, in any) (PayOrder, error) {
 	var o PayOrder
 	if err := p.cl.call(ctx, c, method, path, nil, in, &o); err != nil {
-		return PayOrder{}, err
+		return PayOrder{}, payBack(err)
 	}
 	return p.seen(o), nil
 }
@@ -154,7 +208,7 @@ func (p *payClient) Refund(ctx context.Context, c Caller, orderID string, req Pa
 	}{req.AmountCents, req.Reason, req.IdemKey}
 	var r PayRefund
 	err := p.cl.call(ctx, c, "POST", "/app/v1/pay/orders/"+pathEscape(orderID)+"/refunds", nil, body, &r)
-	return r, err
+	return r, payBack(err)
 }
 
 func (p *payClient) Refunds(ctx context.Context, c Caller, orderID string) ([]PayRefund, error) {
@@ -162,7 +216,7 @@ func (p *payClient) Refunds(ctx context.Context, c Caller, orderID string) ([]Pa
 		Items []PayRefund `json:"items"`
 	}
 	err := p.cl.call(ctx, c, "GET", "/app/v1/pay/orders/"+pathEscape(orderID)+"/refunds", nil, nil, &out)
-	return out.Items, err
+	return out.Items, payBack(err)
 }
 
 func (p *payClient) Link(o PayOrder) string {

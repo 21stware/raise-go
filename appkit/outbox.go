@@ -28,7 +28,9 @@ import (
 //   - any other error → retried after 30 s, 1 min, 2 min … (at most 4 h between tries); after OutboxMaxAttempts tries failed;
 //   - no LedgerAPI wired → stays pending, looked at again in an hour.
 //
-// A kind other than ledger.post is failed (the kit delivers nothing else).
+// A deal event handed to the platform (deal.handover, deals_client.go) has the same outcomes, with result "platform"; a calendar push
+// (calendar.event.upsert / cancel, calendar_outbox.go) fails only when the platform finds it invalid. A kind other than these is failed
+// (the kit delivers nothing else).
 
 const (
 	// OutboxLedgerPost is the kind of a queued ledger posting.
@@ -90,7 +92,7 @@ func enqueue(ctx context.Context, tx *sql.Tx, table, tenant, app, kind, key stri
 // DeliverNow delivers the tenant's queued rows with these keys at once (call it after the business transaction committed).
 // Best effort: whatever does not go through now is the worker's.
 func (d Deps) DeliverNow(ctx context.Context, tenant string, keys ...string) {
-	if d.DB == nil || d.LedgerAPI == nil || len(keys) == 0 {
+	if d.DB == nil || (d.LedgerAPI == nil && d.DealsAPI == nil && d.CalendarAPI == nil) || len(keys) == 0 {
 		return
 	}
 	if err := NewOutbox(d).Deliver(context.WithoutCancel(ctx), tenant, keys...); err != nil {
@@ -107,13 +109,17 @@ type Outbox struct {
 	// LedgerAPI is where the app sends its ledger postings (the platform's POST /app/v1/ledger/posts, idempotent by the same key;
 	// ADR-0066 §2): the platform's own outbox then delivers them to the books.
 	LedgerAPI func(ctx context.Context, c Caller, req PostReq) (string, error)
+	// DealsAPI is where the app hands its deal events (the platform's POST /app/v1/deals; deals_client.go).
+	DealsAPI func(ctx context.Context, c Caller, ev DealEvent) error
+	// CalendarAPI is where the app's calendar pushes go (the platform's /app/v1/calendar/projections; calendar_outbox.go).
+	CalendarAPI func(ctx context.Context, tenant, ref string, version int64, item *CalendarProjection) (string, error)
 	// Schema is whose outbox this is: the app's schema (Deps.Schema).
 	Schema string
 }
 
 // NewOutbox is the outbox of the app's Deps.
 func NewOutbox(d Deps) *Outbox {
-	return &Outbox{DB: d.DB, Now: d.Now, Log: d.Log, LedgerAPI: d.LedgerAPI, Schema: d.Schema}
+	return &Outbox{DB: d.DB, Now: d.Now, Log: d.Log, LedgerAPI: d.LedgerAPI, DealsAPI: d.DealsAPI, CalendarAPI: d.CalendarAPI, Schema: d.Schema}
 }
 
 func (o *Outbox) table() string { return outboxTable(o.Schema) }
@@ -309,6 +315,12 @@ func (o *Outbox) mark(ctx context.Context, tenant string, it outboxItem, q strin
 
 // handle delivers one claimed row by its kind.
 func (o *Outbox) handle(ctx context.Context, tenant string, now time.Time, it outboxItem) error {
+	switch it.kind {
+	case OutboxDealHandover:
+		return o.handleDealHandover(ctx, tenant, now, it)
+	case OutboxCalendarUpsert, OutboxCalendarCancel:
+		return o.handleCalendar(ctx, tenant, now, it)
+	}
 	if it.kind != OutboxLedgerPost {
 		return o.mark(ctx, tenant, it, `state = 'failed', last_error = $3, done_at = $4`, "unknown kind "+it.kind, now)
 	}
