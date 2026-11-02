@@ -29,8 +29,8 @@ import (
 //   - no LedgerAPI wired → stays pending, looked at again in an hour.
 //
 // A deal event handed to the platform (deal.handover, deals_client.go) has the same outcomes, with result "platform"; a calendar push
-// (calendar.event.upsert / cancel, calendar_outbox.go) fails only when the platform finds it invalid. A kind other than these is failed
-// (the kit delivers nothing else).
+// (calendar.event.upsert / cancel, calendar_outbox.go) fails only when the platform finds it invalid. Another kind is delivered by
+// the handler the app registered for it (RegisterOutboxHandler, outbox_ext.go); a kind with none is failed.
 
 const (
 	// OutboxLedgerPost is the kind of a queued ledger posting.
@@ -72,6 +72,12 @@ func outboxTable(schema string) string {
 		return "firstparty_outbox"
 	}
 	return quoteIdent(schema) + ".firstparty_outbox"
+}
+
+// Enqueue writes one outbox row of the app's own kind in tx, in the outbox of the app's schema (Deps.Schema), idempotent by tenant and
+// key. The worker delivers it with the handler registered for kind (RegisterOutboxHandler); Outbox.Deliver delivers it at once.
+func (d Deps) Enqueue(ctx context.Context, tx *sql.Tx, tenant, app, kind, key string, payload any) error {
+	return enqueue(ctx, tx, outboxTable(d.Schema), tenant, app, kind, key, payload)
 }
 
 func enqueue(ctx context.Context, tx *sql.Tx, table, tenant, app, kind, key string, payload any) error {
@@ -322,6 +328,9 @@ func (o *Outbox) handle(ctx context.Context, tenant string, now time.Time, it ou
 		return o.handleCalendar(ctx, tenant, now, it)
 	}
 	if it.kind != OutboxLedgerPost {
+		if h, ok := extHandler(it.kind); ok {
+			return o.handleExt(ctx, tenant, now, it, h)
+		}
 		return o.mark(ctx, tenant, it, `state = 'failed', last_error = $3, done_at = $4`, "unknown kind "+it.kind, now)
 	}
 	set := func(q string, args ...any) error { return o.mark(ctx, tenant, it, q, args...) }

@@ -142,6 +142,11 @@ func OpsHandler(m *k3.Manifest, ops []Op, platformKeys k3.KeySource, idem Idempo
 
 func adapt(f OpFunc) opFunc {
 	return func(ctx context.Context, c opCaller, input json.RawMessage) (k3.ExecuteResult, error) {
+		// an op runs for the person the platform's assertion names; an app's subject ("app:…", the app's own call in the platform's
+		// services) is never a person, so an assertion that names one is refused rather than let the app treat it as itself
+		if strings.HasPrefix(c.Subject, appPrefix) {
+			return k3.ExecuteResult{}, &opFailure{Status: http.StatusUnauthorized, Msg: "an op is called for a person, not for an app"}
+		}
 		res, err := f(ctx, Caller{Tenant: c.Tenant, User: c.Subject, Name: c.Name, Roles: c.Roles, Via: c.Via}, input)
 		if err != nil {
 			return k3.ExecuteResult{}, opError(err)

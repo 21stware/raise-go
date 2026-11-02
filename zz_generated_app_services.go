@@ -2530,6 +2530,46 @@ func (s *AppRealtimeService) ScrubDoc(ctx context.Context, id string, opts ...Ca
 // AppResourcesService is the resources resource of the app API.
 type AppResourcesService struct{ c *Client }
 
+// 批准一条申请
+// 需要范围 `app.resources:write`。English: approves a pending request the caller may decide: the level (at most what was asked; omitted: what was asked), optionally until expiresAt.
+//
+// 正文与规则同平台内置应用的 `/api/access/requests…`。只收页面会话：应用自己的令牌是 403 `forbidden`（申请和处理都是人做的事）。只含本应用在清单里声明、开放申请（`requestable`）的类型。平面类型由访问内核的名单决定谁处理（所有者和管理者）；树类型（知识库页面）的名单是应用自己的树，由应用通过提供者 `accessRequests` 回答调用者在资源上的级别、通知谁、批准怎么写入；应用不提供时，树类型不收申请（404）。调用者不能处理是 404；已处理过是 409。树类型由应用写入批准，应用拒绝（例如超出处理人能给的级别）时原样返回它的状态和说明。
+func (s *AppResourcesService) ApproveRequest(ctx context.Context, rid string, body *AppResourceApproveRequest, opts ...CallOption) (*AppResourceRequest, error) {
+	path := "/access/requests/" + url.PathEscape(rid) + "/approve"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppResourceRequest
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 撤回自己的申请
+// 需要范围 `app.resources:write`。English: withdraws the caller's own pending request.
+//
+// 正文与规则同平台内置应用的 `/api/access/requests…`。只收页面会话：应用自己的令牌是 403 `forbidden`（申请和处理都是人做的事）。只含本应用在清单里声明、开放申请（`requestable`）的类型。平面类型由访问内核的名单决定谁处理（所有者和管理者）；树类型（知识库页面）的名单是应用自己的树，由应用通过提供者 `accessRequests` 回答调用者在资源上的级别、通知谁、批准怎么写入；应用不提供时，树类型不收申请（404）。
+func (s *AppResourcesService) CancelRequest(ctx context.Context, rid string, opts ...CallOption) (*AppResourceRequest, error) {
+	path := "/access/requests/" + url.PathEscape(rid)
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppResourceRequest
+	if err := s.c.doApp(ctx, "DELETE", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // 批量查一个人对多个资源的级别
 // 需要范围 `app.resources:read`。English: the level of a person on each of up to 500 resources of one type (replaces a visibility SQL join).
 //
@@ -2544,6 +2584,28 @@ func (s *AppResourcesService) Check(ctx context.Context, typ string, body *AppRe
 		o(&ro)
 	}
 	var out AppResourceCheckAnswer
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 拒绝一条申请
+// 需要范围 `app.resources:write`。English: refuses a pending request the caller may decide, with the reason the requester is told (required, at most 200 characters).
+//
+// 正文与规则同平台内置应用的 `/api/access/requests…`。只收页面会话：应用自己的令牌是 403 `forbidden`（申请和处理都是人做的事）。只含本应用在清单里声明、开放申请（`requestable`）的类型。平面类型由访问内核的名单决定谁处理（所有者和管理者）；树类型（知识库页面）的名单是应用自己的树，由应用通过提供者 `accessRequests` 回答调用者在资源上的级别、通知谁、批准怎么写入；应用不提供时，树类型不收申请（404）。
+func (s *AppResourcesService) DenyRequest(ctx context.Context, rid string, body *AppResourceDenyRequest, opts ...CallOption) (*AppResourceRequest, error) {
+	path := "/access/requests/" + url.PathEscape(rid) + "/deny"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppResourceRequest
 	var reqBody any
 	if body != nil {
 		reqBody = body
@@ -2663,6 +2725,21 @@ func (s *AppResourcesService) Mine(ctx context.Context, typ string, p *AppResour
 	return &out, nil
 }
 
+// 读调用者自己的申请
+// 需要范围 `app.resources:read`。English: the caller's own requests on this app's types, newest first, at most 100 (no titles).
+//
+// 正文与规则同平台内置应用的 `/api/access/requests…`。只收页面会话：应用自己的令牌是 403 `forbidden`（申请和处理都是人做的事）。只含本应用在清单里声明、开放申请（`requestable`）的类型。平面类型由访问内核的名单决定谁处理（所有者和管理者）；树类型（知识库页面）的名单是应用自己的树，由应用通过提供者 `accessRequests` 回答调用者在资源上的级别、通知谁、批准怎么写入；应用不提供时，树类型不收申请（404）。
+func (s *AppResourcesService) MyRequests(ctx context.Context) (*AppResourceRequestList, error) {
+	path := "/access/requests/mine"
+	var q url.Values
+	var ro requestOptions
+	var out AppResourceRequestList
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // 列出点到某个人的分享（按资源）
 // 需要范围 `app.resources:read`。English: the grants of a flat type that name a person, their departments or their roles (expired ones too), by resource id; for an app that keeps the rules over the kernel's list (a member's sensitive records) and works a person's explicit level out before its own transaction.
 //
@@ -2680,6 +2757,21 @@ func (s *AppResourcesService) Naming(ctx context.Context, typ string, body *AppR
 		reqBody = body
 	}
 	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 读调用者能处理的待处理申请
+// 需要范围 `app.resources:read`。English: every pending request on this app's types that the caller may decide, with the resource's title, oldest first.
+//
+// 正文与规则同平台内置应用的 `/api/access/requests…`。只收页面会话：应用自己的令牌是 403 `forbidden`（申请和处理都是人做的事）。只含本应用在清单里声明、开放申请（`requestable`）的类型。平面类型由访问内核的名单决定谁处理（所有者和管理者）；树类型（知识库页面）的名单是应用自己的树，由应用通过提供者 `accessRequests` 回答调用者在资源上的级别、通知谁、批准怎么写入；应用不提供时，树类型不收申请（404）。
+func (s *AppResourcesService) PendingRequests(ctx context.Context) (*AppResourceRequestList, error) {
+	path := "/access/requests"
+	var q url.Values
+	var ro requestOptions
+	var out AppResourceRequestList
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
 		return nil, err
 	}
 	return &out, nil

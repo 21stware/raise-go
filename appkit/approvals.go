@@ -31,10 +31,10 @@ type approvalsClient struct{ cl *Client }
 
 var _ Approvals = approvalsClient{}
 
-// asWho is the context of a call made for c: the app's own call (no person) goes with the app's tenant token even inside a person's
+// asWho is the context of a call made for c: the app's own call (no person: no subject, or the app's own "app:{id}") goes with the app's tenant token even inside a person's
 // request (their page session is on the context there).
 func asWho(ctx context.Context, c Caller) context.Context {
-	if c.User == "" {
+	if !isPerson(c) {
 		return WithPersonToken(ctx, "", "")
 	}
 	return ctx

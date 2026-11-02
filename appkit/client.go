@@ -32,6 +32,10 @@ type Client struct {
 	Base  string       // the platform, e.g. "http://kwork:8000"
 	HTTP  *http.Client // nil: a client with a 10 s timeout
 	Token TokenSource
+	// App is the id of the app this client calls for (its manifest's id; give Tokens the same). A caller whose subject is "app:"+App
+	// is the app's own call; any other "app:…" subject — and any at all while App is empty — is refused (ErrForbidden) before a token
+	// is asked for (ADR-0130 P11 S3, as internal/remoteapp).
+	App string
 }
 
 // Customers is the customer centre (/app/v1/customers).
@@ -91,6 +95,9 @@ func (cl *Client) do(ctx context.Context, c Caller, method, path string, query u
 	var zero apiReply
 	if cl.Token == nil {
 		return zero, errors.New("appkit: no token source")
+	}
+	if _, err := ownSubject(cl.App, c); err != nil {
+		return zero, err
 	}
 	token, err := cl.Token(ctx, c)
 	if err != nil {

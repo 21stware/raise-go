@@ -207,6 +207,9 @@ func (cl *Client) stream(ctx context.Context, c Caller, method, path string, que
 	if cl.Token == nil {
 		return nil, errors.New("appkit: no token source")
 	}
+	if _, err := ownSubject(cl.App, c); err != nil {
+		return nil, err
+	}
 	token, err := cl.Token(ctx, c)
 	if err != nil {
 		return nil, err

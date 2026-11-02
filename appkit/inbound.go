@@ -46,7 +46,8 @@ func Inbound(keys k3.KeySource, app string, next http.Handler) http.Handler {
 		ctx := withTrace(r.Context(), r.Header)
 		if tok := r.Header.Get(HeaderToken); tok != "" {
 			var c AppClaims
-			if err := k3.Verify(ctx, tok, TypAppToken, keys, &c); err != nil || !c.Aud.Contains(app) || c.Tenant == "" || c.Sub == "" {
+			if err := k3.Verify(ctx, tok, TypAppToken, keys, &c); err != nil || !c.Aud.Contains(app) || c.Tenant == "" || c.Sub == "" ||
+				strings.HasPrefix(c.Sub, appPrefix) { // a page session is a person's: an app's subject is never one (ownSubject)
 				http.Error(w, `{"error":"the App token is not valid"}`, http.StatusUnauthorized)
 				return
 			}
@@ -103,7 +104,7 @@ func verifyCall(ctx context.Context, r *http.Request, keys k3.KeySource, app, to
 		return Platform{}, false
 	}
 	p := Platform{Tenant: c.Tenant, Via: c.Via, Op: c.Op, Key: c.IdempotencyKey}
-	if c.Sub != "" && c.Sub != "platform" {
+	if c.Sub != "" && c.Sub != "platform" && !strings.HasPrefix(c.Sub, appPrefix) { // an app's subject is no person (noPerson)
 		p.Caller = Caller{Tenant: c.Tenant, User: c.Sub, Name: c.Name, Roles: c.Roles}
 	}
 	return p, true

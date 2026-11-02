@@ -42,7 +42,7 @@ const (
 // Serve is the whole handler of app a running on its own, behind Inbound. What it answers for the platform is what a's manifest
 // declares (Providers, Services, SiteActions, Events) of what its code provides (DataProviding, LinkProviding, Attributing,
 // DealHandling, SiteActing, DataEventHandler, Opped, TableProviding, the P11 kinds' ...ing interfaces of providers.go, Granting, ApprovalAnswering,
-// Settling); a provider a implements but does not declare is not served.
+// Settling, AccessRequestHost); a provider a implements but does not declare is not served.
 func Serve(a App, d Deps, keys k3.KeySource, version, base string) (http.Handler, error) {
 	mux := http.NewServeMux()
 	m := a.Manifest(version, base)
@@ -53,10 +53,11 @@ func Serve(a App, d Deps, keys k3.KeySource, version, base string) (http.Handler
 		}
 		mux.Handle("/k3/apps/"+a.ID()+"/", oh)
 	}
-	serveEvents(mux, a, d, m)    // tenant.deleted, site.deleted (ADR-0130 §2.5)
-	serveSchedules(mux, a, d, m) // the services that run on the platform's clock
-	serveAppEvents(mux, a, d, m) // the services of other apps' events
-	serveConsent(mux, a, d, m)   // the service of the customers' consent changes
+	serveEvents(mux, a, d, m)         // tenant.deleted, site.deleted (ADR-0130 §2.5)
+	serveSchedules(mux, a, d, m)      // the services that run on the platform's clock
+	serveAppEvents(mux, a, d, m)      // the services of other apps' events
+	serveConsent(mux, a, d, m)        // the service of the customers' consent changes
+	servePlatformEvents(mux, a, d, m) // realtime.doc.projected, app.installed, permissions.changed
 	decl := m.Providers
 	if p, ok := a.(DealHandling); ok && decl.Has("deals") {
 		if dh := p.HandlesDeals(d); dh != nil {
@@ -65,7 +66,7 @@ func Serve(a App, d Deps, keys k3.KeySource, version, base string) (http.Handler
 				if !platformJSON(w, r, k3.ViaEvent, &in) || !sameTenant(w, r, in.Caller.Tenant) {
 					return
 				}
-				err := dh.HandleDeal(r.Context(), in.Caller, in.Event)
+				err := dh.HandleDeal(r.Context(), noPerson(in.Caller), in.Event)
 				switch {
 				case err == nil:
 					w.WriteHeader(http.StatusNoContent)
@@ -212,10 +213,12 @@ func Serve(a App, d Deps, keys k3.KeySource, version, base string) (http.Handler
 		}
 	}
 	serveKinds(mux, a, decl, d)        // customerAssert, people, backlinks, holdings, agenda, work, desk, till, handover, holds, holdWatch (serve_kinds.go)
+	serveAccess(mux, a, decl, d)       // providers.accessRequests (access_requests.go)
 	serveTables(mux, a, decl, d)       // providers.tables (tables.go)
 	serveGranters(mux, a, m, d)        // entitlements.grantable (serve_granters.go)
 	serveApprovals(mux, a, m, d, keys) // PREPARE and DECIDED of the kinds the manifest declares (serve_approvals.go)
 	servePayments(mux, a, m, d)        // the service of event:payment (serve_payments.go)
+	serveKnowledge(mux, a, d, decl)    // retrieve, embeddings (knowledge.go)
 	mux.Handle("/", a.Handler(d))
 	return Inbound(keys, a.ID(), mux), nil
 }

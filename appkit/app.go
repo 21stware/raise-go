@@ -8,7 +8,9 @@ import (
 	"sync"
 	"time"
 
+	rgaccess "github.com/21stware/raise-go/access"
 	"github.com/21stware/raise-go/k3"
+	"github.com/21stware/raise-go/realtime"
 )
 
 // App is one app served by Serve.
@@ -101,6 +103,21 @@ type Deps struct {
 	// CalendarAPI is where the app's calendar pushes go (Client.CalendarPush: the platform's /app/v1/calendar/projections); CalendarUpsert
 	// and CalendarCancel queue them in the app's own outbox, in its transaction. Nil: they wait in the outbox.
 	CalendarAPI func(ctx context.Context, tenant, ref string, version int64, item *CalendarProjection) (string, error)
+	// Tree is the access kernel's tree model (Client.Tree): the app's roots and nodes, their access lists and the caller's sets
+	// (ADR-0130 §2.6.2). Nil when it is not wired.
+	Tree rgaccess.Tree
+	// Realtime is the platform's real-time service for the app's documents (Client.Realtime: the platform keeps the Hubs and
+	// serves the sync connections; ADR-0130 §2.6.1). Nil when it is not wired.
+	Realtime realtime.Service
+	// BacklinksAPI lists the other apps' records that mention one of the app's own (Client.Backlinks); BacklinksOf answers it.
+	BacklinksAPI func(ctx context.Context, c Caller, ref string, limit int) ([]Backlink, error)
+	// AccessRequestsAPI forwards one of the access-request routes to the kernel's /app/v1/access/… (Client.AccessRequests: an app on
+	// its own forwards its /api/access/* request routes; the requests are the kernel's, ADR-0130 P8): path below /access (e.g.
+	// "/requests/mine"), the JSON body (nil: none); the answer's status and body as they are. Nil: not wired.
+	AccessRequestsAPI func(ctx context.Context, c Caller, method, path string, body []byte) (int, []byte, error)
+	// Changes tells the app about installation and permission changes of a tenant; Serve feeds it from the app's services of
+	// event:app.installed and event:permissions.changed. Nil-safe.
+	Changes *TenantChanges
 	// Shutdown takes hooks the process runs when it stops (Every's jobs register their own). Nil-safe.
 	Shutdown *ShutdownHooks
 	Log      *slog.Logger

@@ -28,7 +28,14 @@ type ResourceDecl struct {
 	Requestable bool `json:"requestable,omitempty"`
 	// Sensitive: the resource holds personal data (a member's records): every read is audited and the AI policy defaults to off.
 	Sensitive bool `json:"sensitive,omitempty"`
+	// Rules: "app" when the App keeps the rules over a flat list the platform keeps (who decides its access requests, what an
+	// approval may give: providers.accessRequests answers, and the App writes an approved grant itself); "" for the list's own rules
+	// (owner and managers). A type with a parent is the App's tree: its requests are always the App's.
+	Rules string `json:"rules,omitempty"`
 }
+
+// ResourceRulesApp is ResourceDecl.Rules for a type whose rules are the App's.
+const ResourceRulesApp = "app"
 
 // ResourceLevels are the levels a ResourceDecl may name, low to high.
 var ResourceLevels = []string{"view", "comment", "edit", "manage"}
@@ -68,6 +75,9 @@ func (m *Manifest) validateResources() []string {
 			if indexOf(ResourceSwitches, s) < 0 {
 				errs = append(errs, fmt.Sprintf("%s: switch %q is not one of %s", at, s, strings.Join(ResourceSwitches, ", ")))
 			}
+		}
+		if r.Rules != "" && r.Rules != ResourceRulesApp {
+			errs = append(errs, fmt.Sprintf("%s: rules %q is not %q", at, r.Rules, ResourceRulesApp))
 		}
 		if r.Parent != "" && r.Parent == r.Type {
 			errs = append(errs, fmt.Sprintf("%s: a type is not its own parent", at))

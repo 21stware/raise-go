@@ -36,7 +36,7 @@ import (
 //	POST /k3/providers/holds/release     {holdId, reason}            → 204
 //	POST /k3/providers/holds/released    {caller, event}             → 204 · 422 refused · else retried
 //
-// Retrieve and embeddings are not served by appkit (yet).
+// Retrieve and embeddings are served by serveKnowledge (knowledge.go).
 const (
 	PathCustomerAssert = "/k3/providers/customer-assert"
 	PathPeople         = "/k3/providers/people"
@@ -359,7 +359,7 @@ func serveKinds(mux *http.ServeMux, a App, decl *k3.ProvidersDecl, d Deps) {
 				if !platformJSON(w, r, k3.ViaEvent, &in) || !sameTenant(w, r, in.Caller.Tenant) {
 					return
 				}
-				switch err := hw.HoldReleased(r.Context(), in.Caller, in.Event); {
+				switch err := hw.HoldReleased(r.Context(), noPerson(in.Caller), in.Event); {
 				case err == nil:
 					w.WriteHeader(http.StatusNoContent)
 				case refusal(err):

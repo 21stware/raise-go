@@ -3,6 +3,7 @@ package appkit
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -20,6 +21,8 @@ type Tokens struct {
 	ClientID     string
 	ClientSecret string
 	HTTP         *http.Client
+	// App is the app's id: "app:"+App is its own subject (ownSubject); empty, every "app:…" subject is refused.
+	App string
 
 	once sync.Once
 	sdk  *raise.Client
@@ -28,7 +31,16 @@ type Tokens struct {
 // Source returns the TokenSource.
 func (t *Tokens) Source() TokenSource {
 	return func(ctx context.Context, c Caller) (string, error) {
-		if p := personToken(ctx); p.token != "" && p.tenant == c.Tenant {
+		// a call for a person (c.User) goes with the person's App token of the request; a call without one is the app's own (the
+		// access kernel's tree writes, the app's reads of its tenant) and goes with the app's token even while it serves a person's
+		// request. A caller whose subject is the app itself ("app:{id}", what the platform's services call an app's own call) is no
+		// person either — but only the subject of exactly this app (App); any other "app:…" subject is refused, it gets neither the
+		// person's token nor the app's (ADR-0130 P11 S3, as internal/remoteapp).
+		own, err := ownSubject(t.App, c)
+		if err != nil {
+			return "", err
+		}
+		if p := personToken(ctx); p.token != "" && p.tenant == c.Tenant && !own {
 			return p.token, nil
 		}
 		return t.tenant(ctx, c.Tenant)
@@ -50,6 +62,38 @@ func (t *Tokens) tenant(ctx context.Context, tenant string) (string, error) {
 		t.sdk = raise.New(t.ClientID, t.ClientSecret, raise.WithBaseURL(strings.TrimRight(t.Base, "/")+"/open/v1"), raise.WithHTTPClient(hc))
 	})
 	return t.sdk.Token(ctx, tenant)
+}
+
+// appPrefix starts the subject the platform's services give an app's own call ("app:{id}"). No person has it: Inbound refuses an App
+// token whose subject starts with it, and a platform call naming one is no person's (noPerson).
+const appPrefix = "app:"
+
+// ownSubject says whether c is the app's own call: no subject, or exactly "app:"+app. Any other "app:…" subject — another app's, or
+// any when the app's id is not known — is refused (ErrForbidden): it is no person, and not this app either.
+func ownSubject(app string, c Caller) (bool, error) {
+	if c.User == "" {
+		return true, nil
+	}
+	if !strings.HasPrefix(c.User, appPrefix) {
+		return false, nil
+	}
+	if app != "" && c.User == appPrefix+app {
+		return true, nil
+	}
+	return false, fmt.Errorf("%w: appkit: the caller %q is not this app (%q) and no person", ErrForbidden, c.User, app)
+}
+
+// isPerson says c is a call made for a person: a subject that is not an app's ("" or "app:…"; ownSubject refuses a foreign one).
+func isPerson(c Caller) bool { return c.User != "" && !strings.HasPrefix(c.User, appPrefix) }
+
+// noPerson is a caller the platform named in a call to the app (an assertion's subject, a signed body's caller) as the app may use it:
+// an "app:…" subject is no person, so it becomes the app's own work for that tenant (no subject), never a subject the app's client
+// would take for a person or for itself.
+func noPerson(c Caller) Caller {
+	if strings.HasPrefix(c.User, appPrefix) {
+		return Caller{Tenant: c.Tenant, Name: c.Name, Via: c.Via}
+	}
+	return c
 }
 
 type personKey struct{}

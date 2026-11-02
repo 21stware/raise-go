@@ -189,6 +189,10 @@ type ProvidersDecl struct {
 	// RealtimeGuard: POST /k3/providers/realtime-guard: the App's check of a real-time document's guarded fields before an update is
 	// written (ADR-0130 §2.6.1; only for documents whose realtime.docs[] entry sets guard; 2 s, no answer is a refusal).
 	RealtimeGuard bool `json:"realtimeGuard,omitempty"`
+	// AccessRequests: POST /k3/providers/access-requests {op: levels | deciders | grant}: the App's side of the access requests on
+	// its own resources (ADR-0130 P8; acl.Host over HTTP): the caller's level on some resources, who decides one, and writing an
+	// approval. Only for the requestable types the App keeps its own list or rules for (a tree type, an app-rules type); 5 s.
+	AccessRequests bool `json:"accessRequests,omitempty"`
 	// CustomerAssert: POST /k3/providers/customer-assert {tenant, phone, customer?} → {customer, matched}: the customer a phone number
 	// is under, for the open platform's customer-mode token (ADR-0079 §6, ADR-0130 §3.2 H7; 422 bad_phone, 409 ambiguous_customer; 3 s).
 	// One App per tenant answers it: the first installed in app id order.
@@ -198,7 +202,7 @@ type ProvidersDecl struct {
 // ProviderKinds are the kinds a ProvidersDecl can declare, in the order of its fields.
 var ProviderKinds = []string{"sources", "tables", "referrer", "referralCodes", "links", "deals", "people", "retrieve", "backlinks",
 	"embeddings", "holdings", "agenda", "work", "desk", "till", "handover", "holds", "holdWatch", "realtimeGuard",
-	"customerAssert"}
+	"accessRequests", "customerAssert"}
 
 // Has reports whether the declaration names the kind (a nil declaration names none).
 func (p *ProvidersDecl) Has(kind string) bool {
@@ -244,6 +248,8 @@ func (p *ProvidersDecl) Has(kind string) bool {
 		return p.HoldWatch
 	case "realtimeGuard":
 		return p.RealtimeGuard
+	case "accessRequests":
+		return p.AccessRequests
 	case "customerAssert":
 		return p.CustomerAssert
 	}
@@ -472,15 +478,19 @@ type Permission struct {
 	// ADR-0130 P4). An App that declares them is gated: the workspace lists it only for a person who holds one of its points, as the
 	// platform does for its own gated apps. Empty: nobody holds it by default (an administrator still holds every point).
 	Roles []string `json:"roles,omitempty"`
+	// Defaults are platform roles that hold the point by default too, WITHOUT gating the App's listing: for an App listed for
+	// everyone whose pages still need a point for some parts (the knowledge apps: their read point admits a sync connection; ADR-0130
+	// P8). Empty: only Roles.
+	Defaults []string `json:"defaults,omitempty"`
 }
 
-// PermissionDefaults are the roles each point is held by by default (Permission.Roles), and whether the App declares any: an App that
-// does is gated (see Permission.Roles).
+// PermissionDefaults are the roles each point is held by by default (Permission.Roles and Permission.Defaults), and whether the App
+// declares any Roles: an App that does is gated (see Permission.Roles; Defaults never gate).
 func (m *Manifest) PermissionDefaults() (map[string][]string, bool) {
 	out := map[string][]string{}
 	gated := false
 	for _, p := range m.Permissions {
-		out[p.ID] = p.Roles
+		out[p.ID] = append(slices.Clone(p.Roles), p.Defaults...)
 		if len(p.Roles) > 0 {
 			gated = true
 		}

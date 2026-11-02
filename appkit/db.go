@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"sync"
 )
 
 // Tx runs fn in a transaction scoped to one tenant: every statement sees only that tenant's rows (row-level security,
@@ -47,12 +48,27 @@ func run(ctx context.Context, db *sql.DB, tenant, scope string, fn func(*sql.Tx)
 // errDry ends a dry transaction: it is the sentinel TxDry rolls back on.
 var errDry = errors.New("appkit: dry run")
 
+// dryTxs are the transactions TxDry is running (IsDry).
+var dryTxs sync.Map
+
+// IsDry says tx is a dry run's (TxDry): code that writes outside it (another service, its own transaction: the access kernel's
+// tree, a real-time document) skips the write, since nothing of a dry run may stay.
+func IsDry(tx *sql.Tx) bool {
+	if tx == nil {
+		return false
+	}
+	_, ok := dryTxs.Load(tx)
+	return ok
+}
+
 // TxDry runs fn exactly as Tx would and then rolls the transaction back, whatever fn returned. It is how an op's dry-run uses
 // the same command code as its execute: the checks, the permission rules and the writes all happen, and nothing stays. What fn
 // returns through its own variables is the account of what would have happened; side effects outside the database (blobs,
 // notices, audit entries) must stay out of fn, or be skipped when dry.
 func TxDry(ctx context.Context, db *sql.DB, tenant string, fn func(*sql.Tx) error) error {
 	err := Tx(ctx, db, tenant, func(tx *sql.Tx) error {
+		dryTxs.Store(tx, struct{}{})
+		defer dryTxs.Delete(tx)
 		if err := fn(tx); err != nil {
 			return err
 		}

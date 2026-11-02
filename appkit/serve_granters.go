@@ -69,6 +69,7 @@ func serveGranters(mux *http.ServeMux, a App, m *k3.Manifest, d Deps) {
 		if !platformJSON(w, r, k3.ViaEvent, &in) || !sameTenant(w, r, in.Caller.Tenant) {
 			return in, nil, false
 		}
+		in.Caller = noPerson(in.Caller) // another app's own call (app:…) reaches the granter as no person
 		g, ok := gs[in.Name]
 		if _, declared := m.Grantable(in.Name); !ok || g == nil || !declared {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "the app does not issue " + in.Name})

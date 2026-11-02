@@ -751,7 +751,9 @@ type AppResourceRequest struct {
 	// 被拒绝后 24 小时的冷却何时结束
 	RetryAfter time.Time `json:"retryAfter,omitempty"`
 	Status     string    `json:"status"`
-	Type       string    `json:"type"`
+	// 资源的标题，只给能处理它的人
+	Title string `json:"title,omitempty"`
+	Type  string `json:"type"`
 }
 
 // 一次使用（核销单）
@@ -1551,6 +1553,14 @@ type AppDealLine struct {
 	Sku string `json:"sku"`
 }
 
+// 批准申请
+type AppResourceApproveRequest struct {
+	// 到期时间，省略为长期
+	ExpiresAt time.Time `json:"expiresAt,omitempty"`
+	// 批准的级别（view、comment、edit），省略为申请的级别
+	Level string `json:"level,omitempty"`
+}
+
 // 找到或建立客户。除 identities 外都可省略
 type AppCustomerResolveRequest struct {
 	// 要求新建一位没有任何身份的客户；此时 identities 必须为空，不做匹配，一定新建
@@ -1579,6 +1589,12 @@ type AppCustomerRef struct {
 	Id string `json:"id"`
 	// 客户中心保存的姓名：新建时或原来没有姓名时是这次给的，否则是原有的
 	Name string `json:"name,omitempty"`
+}
+
+// 拒绝申请
+type AppResourceDenyRequest struct {
+	// 拒绝的原因，申请人会看到
+	Reason string `json:"reason"`
 }
 
 // 指向草稿里的一项
