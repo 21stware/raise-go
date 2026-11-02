@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // ResourceDecl is one kind of resource of an App whose access the platform's access kernel keeps (ADR-0105 A1, ADR-0130 §2.6.2).
@@ -16,6 +17,11 @@ import (
 type ResourceDecl struct {
 	// Type is "<app id>.<kind>": the App's own prefix.
 	Type string `json:"type"`
+	// Name is what one resource of this kind is called in a sentence, in Chinese (笔记, 看板): the platform's share dialog says
+	// 「这个笔记」. NameEn is the same word in English (note, dashboard). Both optional, at most ResourceNameMax characters on one
+	// line; without them the dialog says 「这个内容」 / "this item". Read back with GET /app/v1/access/{type}.
+	Name   string `json:"name,omitempty"`
+	NameEn string `json:"nameEn,omitempty"`
 	// Parent is the type a resource of this kind sits in (a page in a space) when its access is inherited; "" for a flat resource.
 	Parent string `json:"parent,omitempty"`
 	// Levels are the levels the list may give, low to high (view, comment, edit, manage); empty: all four.
@@ -33,6 +39,9 @@ type ResourceDecl struct {
 	// (owner and managers). A type with a parent is the App's tree: its requests are always the App's.
 	Rules string `json:"rules,omitempty"`
 }
+
+// ResourceNameMax is the longest ResourceDecl.Name or NameEn, in characters.
+const ResourceNameMax = 20
 
 // ResourceRulesApp is ResourceDecl.Rules for a type whose rules are the App's.
 const ResourceRulesApp = "app"
@@ -74,6 +83,11 @@ func (m *Manifest) validateResources() []string {
 		for s := range r.Switches {
 			if indexOf(ResourceSwitches, s) < 0 {
 				errs = append(errs, fmt.Sprintf("%s: switch %q is not one of %s", at, s, strings.Join(ResourceSwitches, ", ")))
+			}
+		}
+		for _, n := range [][2]string{{"name", r.Name}, {"nameEn", r.NameEn}} {
+			if n[1] != strings.TrimSpace(n[1]) || utf8.RuneCountInString(n[1]) > ResourceNameMax || strings.ContainsAny(n[1], "\n\r\t") {
+				errs = append(errs, fmt.Sprintf("%s: %s is at most %d characters on one line, with no space around it", at, n[0], ResourceNameMax))
 			}
 		}
 		if r.Rules != "" && r.Rules != ResourceRulesApp {

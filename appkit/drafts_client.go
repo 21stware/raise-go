@@ -39,10 +39,14 @@ func (e *DraftError) HTTPStatus() int         { return e.Status }
 func (e *DraftError) Details() map[string]any { return e.Extra }
 
 func (d *Drafts) do(ctx context.Context, a k3.DraftActor, method, path string, q url.Values, in, out any) error {
-	if a.Delegated { // a page session is a person's, never the agent's: the agent reads a draft on the platform, redacted there
-		return &DraftError{Status: http.StatusForbidden, Message: "the assistant reads drafts on the platform, not through an app in its own process"}
-	}
 	c := Caller{Tenant: a.Tenant, User: a.Subject, Name: a.Name, Roles: a.Roles}
+	if a.Delegated { // the agent: it reads, with its own delegated session (the platform redacts what only the person fills)
+		s := agentSessionOf(ctx)
+		if method != http.MethodGet || s.token == "" || s.tenant != a.Tenant || s.user != a.Subject || s.agent != a.Agent {
+			return &DraftError{Status: http.StatusForbidden, Message: "the assistant only reads drafts, with its own session for the person"}
+		}
+		ctx, c.Agent = withSessionToken(ctx, s.token), a.Agent
+	}
 	rep, err := d.cl.do(ctx, c, method, path, q, in)
 	if err != nil {
 		return err

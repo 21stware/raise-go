@@ -109,3 +109,31 @@ func personToken(ctx context.Context) person {
 	p, _ := ctx.Value(personKey{}).(person)
 	return p
 }
+
+type agentKey struct{}
+
+type agentSession struct{ token, tenant, user, agent string }
+
+// withAgentSession puts the App token of an agent's page session on the context (Inbound does it). Unlike the person's token it is
+// never the token of the app's calls for a person (TokenSource): only the draft reads use it, for the agent, as a delegated session
+// the platform answers redacted (ADR-0130 P10 leftover).
+func withAgentSession(ctx context.Context, token, tenant, user, agent string) context.Context {
+	return context.WithValue(ctx, agentKey{}, agentSession{token: token, tenant: tenant, user: user, agent: agent})
+}
+
+func agentSessionOf(ctx context.Context) agentSession {
+	s, _ := ctx.Value(agentKey{}).(agentSession)
+	return s
+}
+
+type sessionTokenKey struct{}
+
+// withSessionToken makes the client's next call on ctx go with token instead of what the TokenSource answers (the agent's session).
+func withSessionToken(ctx context.Context, token string) context.Context {
+	return context.WithValue(ctx, sessionTokenKey{}, token)
+}
+
+func sessionToken(ctx context.Context) string {
+	t, _ := ctx.Value(sessionTokenKey{}).(string)
+	return t
+}

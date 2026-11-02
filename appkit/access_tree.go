@@ -37,6 +37,11 @@ type treeChanged struct {
 
 func (t tree) PutRoot(ctx context.Context, tenant, typ, id string, spec sdk.RootSpec) error {
 	body := map[string]any{"archived": spec.Archived, "publishOnly": spec.PublishOnly}
+	for k, on := range map[string]bool{"private": spec.Private, "keepManager": spec.KeepManager, "reshare": spec.Reshare, "alwaysInherit": spec.AlwaysInherit} {
+		if on { // a root's rules go only when set: an older platform sees the body it knows
+			body[k] = true
+		}
+	}
 	return t.cl.call(ctx, Caller{Tenant: tenant}, "POST", treePath(typ, id), nil, body, nil)
 }
 
@@ -59,11 +64,12 @@ func (t tree) Delete(ctx context.Context, tenant, typ string, ids ...string) err
 }
 
 type wireEntry struct {
-	Kind      string `json:"kind"`
-	Principal string `json:"principal"`
-	Level     string `json:"level"`
-	Name      string `json:"name"`
-	At        string `json:"at,omitempty"`
+	Kind      string     `json:"kind"`
+	Principal string     `json:"principal"`
+	Level     string     `json:"level"`
+	Name      string     `json:"name"`
+	At        string     `json:"at,omitempty"`
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
 }
 
 func (t tree) SetEntries(ctx context.Context, tenant, typ, id string, entries []sdk.Entry, by string) (sdk.Changed, error) {
@@ -72,7 +78,7 @@ func (t tree) SetEntries(ctx context.Context, tenant, typ, id string, entries []
 		if e.Level < sdk.View || e.Level > sdk.Manage {
 			return nil, fmt.Errorf("%w: level of %s:%s is View … Manage", ErrInvalid, e.Kind, e.Principal)
 		}
-		es = append(es, wireEntry{Kind: e.Kind, Principal: e.Principal, Level: levelName(e.Level), Name: e.Name})
+		es = append(es, wireEntry{Kind: e.Kind, Principal: e.Principal, Level: levelName(e.Level), Name: e.Name, ExpiresAt: e.ExpiresAt})
 	}
 	var out treeChanged
 	body := map[string]any{"entries": es, "by": by}
@@ -99,7 +105,7 @@ func (t tree) Entries(ctx context.Context, tenant, typ, id string) ([]sdk.Entry,
 	for _, e := range v.Entries {
 		l := parseLevel(e.Level)
 		at, _ := time.Parse(time.RFC3339Nano, e.At)
-		out = append(out, sdk.Entry{Kind: e.Kind, Principal: e.Principal, Level: l, Name: e.Name, At: at})
+		out = append(out, sdk.Entry{Kind: e.Kind, Principal: e.Principal, Level: l, Name: e.Name, At: at, ExpiresAt: e.ExpiresAt})
 	}
 	return out, nil
 }

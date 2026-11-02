@@ -988,7 +988,7 @@ type AppLedgerPostRequest struct {
 	Reverses string `json:"reverses,omitempty"`
 	// 开出账单的更早记账的 kind，本笔是对这张账单的付款，至多付到账单还欠的数目
 	Settles string `json:"settles,omitempty"`
-	// 必须是调用的应用
+	// 必须是调用的应用；本应用已付款的网关支付单按渠道记时为 channel:wechat / channel:alipay
 	SourceApp string `json:"sourceApp"`
 	// 来源记录的 k3:// 引用，例如 k3://membership/package/pk_1
 	SourceRef string `json:"sourceRef"`
@@ -2097,29 +2097,61 @@ type AppAppCustomerTag struct {
 
 // 树类型的 GET /access/{type}/{id}
 type AppAccessTreeView struct {
+	// 它继承自哪里：父节点，顶层节点是根；根省略
+	Above string `json:"above,omitempty"`
+	// above 的叫法；不知道时省略
+	AboveName string `json:"aboveName,omitempty"`
+	// 所在的根的节点总是继承（没有停止继承的开关）
+	AlwaysInherit bool `json:"alwaysInherit,omitempty"`
+	// 调用者能改这里的名单：管理它，或者在开了 reshare 的根下能编辑这个节点
+	CanShare bool `json:"canShare,omitempty"`
 	// 有效名单：自己的，加上继承时上面的（集合里的条目）
 	Effective []AppAccessTreeEntry `json:"effective,omitempty"`
 	Entries   []AppAccessTreeEntry `json:"entries"`
 	Id        string               `json:"id"`
+	// 节点是否继承上面的名单；根总是 false
+	Inherit bool `json:"inherit,omitempty"`
+	// 所在的根要留一位不限时的人员管理者
+	KeepManager bool `json:"keepManager,omitempty"`
 	// 调用者经状态限制后的级别；空字符串是没有（应用的令牌不带 user 时也为空）
 	Level string `json:"level"`
+	// 应用最后一次写的叫法（AccessTreePut.name）；没写过时为空字符串
+	Name string `json:"name,omitempty"`
+	// 上面的节点；在根的顶层和根自己省略
+	Parent string `json:"parent,omitempty"`
+	// 所在的根是 private：企业管理员绕过不到
+	Private bool `json:"private,omitempty"`
 	// 状态给的原因：trashed、archived、published_only
 	Reason string `json:"reason,omitempty"`
+	// 所在的根（根自己就是它的 id）
+	Root string `json:"root,omitempty"`
 	// 根或节点指向的集合 id
-	Set  string `json:"set"`
-	Type string `json:"type"`
+	Set string `json:"set"`
+	// canShare 时调用者最多能给到的级别（也不超过类型声明的 levels）
+	ShareTop string `json:"shareTop,omitempty"`
+	Type     string `json:"type"`
 }
 
 // 树类型的 POST /access/{type}/{id}：根的状态，或节点的位置和状态
 type AppAccessTreePut struct {
+	// 根：下面的节点总是继承上面的名单，不能停止继承（节点 inherit 为 false 是 422 invalid）
+	AlwaysInherit bool `json:"alwaysInherit,omitempty"`
 	// 根已归档：最多 comment
 	Archived bool `json:"archived,omitempty"`
 	// 是否继承上级名单，省略为 true
 	Inherit bool `json:"inherit,omitempty"`
+	// 根：自己的名单里总要有一位不限时的、具体的人做管理者；留不下的改动是 422 invalid
+	KeepManager bool `json:"keepManager,omitempty"`
+	// 根或节点的叫法（空间名、文件夹名），平台的分享对话框写「继承自『…』」时用；省略或空字符串时保留平台已有的
+	Name string `json:"name,omitempty"`
 	// 父节点；省略为根的顶层
 	Parent string `json:"parent,omitempty"`
+	// 根：企业管理员的绕过到不了这里（某人自己的文件），只看名单
+	Private bool `json:"private,omitempty"`
 	// 根只读发布版：edit 以下和智能体读已发布版本
 	PublishOnly bool `json:"publishOnly,omitempty"`
+	// 根：能编辑某个节点的人可以继续分享它，最多给到 edit，也只能改 edit 以下的条目
+	Reshare bool `json:"reshare,omitempty"`
 	// 节点所在的根；顶层节点必填，有 parent 时以父节点的根为准
 	Root string `json:"root,omitempty"`
 	// 节点在应用的回收站里：管理级别以下没有权限
@@ -2130,6 +2162,8 @@ type AppAccessTreePut struct {
 type AppAccessTreeEntry struct {
 	// 这条写入的时间（显式名单才有；有效名单里为空）
 	At time.Time `json:"at,omitempty"`
+	// 到期时间：之后这条不再给任何权限，平台把它清掉并重新计算集合；省略或 null 是不限时；已经过去的时间是 422 invalid（有效名单里没有）
+	ExpiresAt time.Time `json:"expiresAt,omitempty"`
 	// user、unit（部门，含下级）、role 或 everyone
 	Kind  string           `json:"kind"`
 	Level AppResourceLevel `json:"level"`
@@ -2182,6 +2216,28 @@ type AppEntitlementRedeemRequest struct {
 // 模型的回答
 type AppModelText struct {
 	Text string `json:"text"`
+}
+
+// 清单 `resources[]` 里的一个资源类型，平台保存的样子
+type AppResourceKind struct {
+	// 这个类型提供的级别，由低到高；没声明时是全部四级
+	Levels []string `json:"levels"`
+	// 一个这种资源的叫法（中文，最多 20 字，如「笔记」）；没声明时为空字符串
+	Name string `json:"name"`
+	// 同一个叫法的英文（如 note）；没声明时为空字符串
+	NameEn string `json:"nameEn"`
+	// 节点类型所在的根类型；平铺类型和根类型省略
+	Parent string `json:"parent,omitempty"`
+	// 可以发布给名单之外的读者
+	Publishable bool `json:"publishable"`
+	// 开放访问申请
+	Requestable bool `json:"requestable"`
+	// 类型声明的开关和默认值
+	Switches map[string]bool `json:"switches"`
+	// 树类型（带 parent 的类型，或被别的类型当作 parent 的类型）
+	Tree bool `json:"tree"`
+	// `{应用 id}.{名字}`
+	Type string `json:"type"`
 }
 
 // 申请访问
@@ -2342,6 +2398,11 @@ type AppNotifyRequest struct {
 	Title string `json:"title"`
 	// 企业成员的用户 id，最多 500 个
 	Users []string `json:"users"`
+}
+
+// 节点是否继承上面的名单
+type AppAccessTreeInherit struct {
+	Inherit bool `json:"inherit"`
 }
 
 // 草稿服务的拒绝：error 是给人看的话，另有这次拒绝带的字段（item、missing、confirm 等）

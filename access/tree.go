@@ -42,12 +42,25 @@ type Entry struct {
 	Name      string `json:"name,omitempty"`
 	// At is when the entry was written (Entries; zero in an effective list, whose entries come from several places).
 	At time.Time `json:"at,omitempty"`
+	// ExpiresAt is when the entry runs out (nil: no end). From then on it gives nothing; the platform sweeps it away.
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
 }
 
 // RootSpec is a root's state.
 type RootSpec struct {
 	Archived    bool `json:"archived"`
 	PublishOnly bool `json:"publishOnly"`
+	// Name is what the root is called (a space's name), for the platform's share dialog (「继承自『销售资料』」); "" keeps the
+	// one the kernel has.
+	Name string `json:"name,omitempty"`
+	// Private: the tenant administrator's bypass does not reach the root (a person's own files): its entries alone count.
+	Private bool `json:"private,omitempty"`
+	// KeepManager: the root's own entries always name a person as manager without an end; a change that leaves none is refused.
+	KeepManager bool `json:"keepManager,omitempty"`
+	// Reshare: someone who edits a node of the root may share it on, up to edit, and change only entries up to edit.
+	Reshare bool `json:"reshare,omitempty"`
+	// AlwaysInherit: every node of the root takes what is above it; none stops inheriting.
+	AlwaysInherit bool `json:"alwaysInherit,omitempty"`
 }
 
 // NodeSpec is where a node sits and its own state: Parent "" puts it at the top of Root (a parent's root wins).
@@ -56,6 +69,9 @@ type NodeSpec struct {
 	Parent  string `json:"parent,omitempty"`
 	Inherit bool   `json:"inherit"`
 	Trashed bool   `json:"trashed"`
+	// Name is what the node is called (a folder's or a page's title), for the platform's share dialog; "" keeps the one the
+	// kernel has.
+	Name string `json:"name,omitempty"`
 }
 
 // Node is a node of the app's tree (Reconcile).

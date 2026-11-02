@@ -103,6 +103,14 @@ type AssertionClaims struct {
 	RunID   string `json:"runId,omitempty"`
 	// Scopes are the open API scopes the caller's token was granted (Via == ViaOpen).
 	Scopes []string `json:"scopes,omitempty"`
+	// Agent names the platform's agent when it, not Sub, makes the call on Sub's behalf (a provider call of the platform for a person:
+	// Via == ViaProvider). The App answers such a call as it answers the agent in its own process (provide.Caller.Agent): it may read,
+	// it must not change anything. Empty: the person themself. ADR-0130 P2 leftover.
+	Agent string `json:"agent,omitempty"`
+	// Origin says how the person's call came about when the platform calls the App for a person (provide.Caller.Via: ViaDraft,
+	// ViaPolicy, ViaConfirm), for the App's audit text. It is not Via, which names the kind of the platform's call. Empty: the person's
+	// own click.
+	Origin string `json:"origin,omitempty"`
 }
 
 // AssertionTTL is deliberately short: an assertion is consumed immediately by the Draft run.

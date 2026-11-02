@@ -298,14 +298,40 @@ func viewer(w http.ResponseWriter, r *http.Request, v any) (Caller, bool) {
 	return p.Caller, true
 }
 
-func writeProviderErr(w http.ResponseWriter, d Deps, err error) {
+// The codes written next to the text of a refusal (the platform's providers.Code…): it restores the error's category from them.
+const (
+	wireInvalid   = "invalid"
+	wireForbidden = "forbidden"
+	wireNotFound  = "not_found"
+	wireConflict  = "conflict"
+	wireNoCard    = "no_card"
+)
+
+// wireCode is the code of err's category, "" for an error that has none.
+func wireCode(err error) string {
 	switch {
+	case errors.Is(err, ErrNoCard):
+		return wireNoCard
 	case errors.Is(err, ErrNotFound):
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return wireNotFound
 	case errors.Is(err, ErrForbidden):
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error()})
+		return wireForbidden
 	case errors.Is(err, ErrInvalid):
-		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
+		return wireInvalid
+	case errors.Is(err, ErrConflict):
+		return wireConflict
+	}
+	return ""
+}
+
+func writeProviderErr(w http.ResponseWriter, d Deps, err error) {
+	switch code := wireCode(err); {
+	case code == wireNoCard || code == wireNotFound:
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error(), "code": code})
+	case code == wireForbidden:
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error(), "code": code})
+	case code == wireInvalid:
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error(), "code": code})
 	default:
 		d.Logger().Warn("appkit: a provider failed", "err", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed"})

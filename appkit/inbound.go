@@ -62,6 +62,8 @@ func Inbound(keys k3.KeySource, app string, next http.Handler) http.Handler {
 			}
 			if c.Agent == "" { // an agent's token is read-only and never travels on to the platform as the person
 				ctx = WithPersonToken(ctx, tok, c.Tenant)
+			} else { // it goes to the platform only as the agent's own, delegated session, for the draft reads (Drafts)
+				ctx = withAgentSession(ctx, tok, c.Tenant, c.Sub, c.Agent)
 			}
 		} else if a := r.Header.Get(k3.HeaderAssertion); a != "" && strings.HasPrefix(r.URL.Path, "/k3/") && !strings.HasPrefix(r.URL.Path, "/k3/apps/") {
 			pc, ok := verifyCall(ctx, r, keys, app, a, platformVias)
@@ -116,7 +118,7 @@ func verifyCall(ctx context.Context, r *http.Request, keys k3.KeySource, app, to
 	}
 	p := Platform{Tenant: c.Tenant, Via: c.Via, Op: c.Op, Key: c.IdempotencyKey, Scopes: c.Scopes}
 	if c.Sub != "" && c.Sub != "platform" && !strings.HasPrefix(c.Sub, appPrefix) { // an app's subject is no person (noPerson)
-		p.Caller = Caller{Tenant: c.Tenant, User: c.Sub, Name: c.Name, Roles: c.Roles}
+		p.Caller = Caller{Tenant: c.Tenant, User: c.Sub, Name: c.Name, Roles: c.Roles, Agent: c.Agent, Via: c.Origin}
 	}
 	return p, true
 }

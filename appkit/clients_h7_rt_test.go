@@ -3,6 +3,7 @@ package appkit
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -39,23 +40,49 @@ func TestBlobsRefuseDotSegmentKeys(t *testing.T) {
 	}
 }
 
-// A page session is a person's, never the agent's: a delegated actor is refused before anything goes out (the agent reads a draft on
-// the platform, where it is redacted), as the platform's client of the draft routes does.
-func TestDraftsRefuseADelegatedActor(t *testing.T) {
-	ctx := context.Background()
-	called := false
-	cl, _ := platform(t, func(w http.ResponseWriter, r *http.Request) { called = true })
+// The agent reads a draft with its own delegated session for its person (what Inbound keeps from the agent's App token), never with
+// the person's or the app's token, and only reads: without that session, for another person or agent, or for a write, the delegated
+// actor is refused before anything goes out (ADR-0130 P10 leftover).
+func TestDraftsReadWithTheAgentsSession(t *testing.T) {
+	var calls []string
+	cl, _ := platform(t, func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.Method+" "+r.URL.Path+" "+r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"d_1","drafts":[]}`)
+	})
 	a := k3.DraftActor{Tenant: "t1", Subject: "u1", Delegated: true, Agent: "agent:kwork"}
-	_, err := cl.Drafts().Get(ctx, a, "d_1")
 	var de *DraftError
-	if !errors.As(err, &de) || de.Status != http.StatusForbidden {
-		t.Fatalf("delegated get: %#v", err)
+	refused := func(ctx context.Context, what string) {
+		t.Helper()
+		calls = nil
+		if _, err := cl.Drafts().Get(ctx, a, "d_1"); !errors.As(err, &de) || de.Status != http.StatusForbidden {
+			t.Fatalf("%s: get %#v", what, err)
+		}
+		if _, err := cl.Drafts().List(ctx, a, k3.DraftListFilter{}); !errors.As(err, &de) || de.Status != http.StatusForbidden {
+			t.Fatalf("%s: list %#v", what, err)
+		}
+		if len(calls) != 0 {
+			t.Fatalf("%s: a delegated actor's call went out: %v", what, calls)
+		}
 	}
-	if _, err := cl.Drafts().List(ctx, a, k3.DraftListFilter{}); !errors.As(err, &de) || de.Status != http.StatusForbidden {
-		t.Fatalf("delegated list: %#v", err)
+	refused(context.Background(), "no session")
+	refused(withAgentSession(context.Background(), "agent-tok", "t1", "u2", "agent:kwork"), "another person's session")
+	refused(withAgentSession(context.Background(), "agent-tok", "t1", "u1", "agent:other"), "another agent's session")
+	refused(WithPersonToken(context.Background(), "person-tok", "t1"), "the person's token")
+
+	ctx := withAgentSession(context.Background(), "agent-tok", "t1", "u1", "agent:kwork")
+	if _, err := cl.Drafts().Get(ctx, a, "d_1"); err != nil {
+		t.Fatal(err)
 	}
-	if called {
-		t.Fatal("a delegated actor's call went out")
+	if _, err := cl.Drafts().List(ctx, a, k3.DraftListFilter{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 2 || calls[0] != "GET /app/v1/drafts/d_1 Bearer agent-tok" || calls[1] != "GET /app/v1/drafts Bearer agent-tok" {
+		t.Fatalf("the agent's reads: %v", calls)
+	}
+	calls = nil
+	if err := cl.Drafts().Abandon(ctx, a, "d_1", "i_1"); !errors.As(err, &de) || de.Status != http.StatusForbidden || len(calls) != 0 {
+		t.Fatalf("the agent abandoned: %#v %v", err, calls)
 	}
 }
 

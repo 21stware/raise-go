@@ -22,7 +22,7 @@ import (
 //	POST /k3/providers/holdings          {holders}                   → {"items": [Holding]}
 //	POST /k3/providers/agenda            {user, from, to}            → {"items": [AgendaItem]}
 //	POST /k3/providers/work/items        {query}                     → {"items": [k3.WorkItem]}
-//	POST /k3/providers/work/card         {id, query}                 → {"card": k3.WorkCardData}   404: ErrNoCard
+//	POST /k3/providers/work/card         {id, query}                 → {"card": k3.WorkCardData}   404 {"code":"no_card"}: ErrNoCard
 //	POST /k3/providers/desk/access       {}                          → {"redeem", "void"}
 //	POST /k3/providers/desk/http         HTTPCall                    → HTTPAnswer
 //	POST /k3/providers/till/access       {}                          → {"sell"}
@@ -250,10 +250,7 @@ func serveKinds(mux *http.ServeMux, a App, decl *k3.ProvidersDecl, d Deps) {
 			person(PathWorkCard, func() any { return &workIn{} }, func(r *http.Request, c Caller, in any) (any, error) {
 				v := in.(*workIn)
 				card, err := wp.WorkCard(r.Context(), c, v.ID, v.Query.query())
-				if errors.Is(err, ErrNoCard) {
-					return nil, ErrNotFound
-				}
-				return map[string]any{"card": card}, err
+				return map[string]any{"card": card}, err // ErrNoCard is 404 no_card (writeProviderErr), another ErrNotFound 404 not_found
 			})
 		}
 	}
@@ -297,6 +294,9 @@ func serveKinds(mux *http.ServeMux, a App, decl *k3.ProvidersDecl, d Deps) {
 				out := map[string]any{"items": items}
 				if err != nil {
 					out["error"] = err.Error() // what it moved before it stopped is still the answer
+					if code := wireCode(err); code != "" {
+						out["code"] = code // its category (ErrInvalid, ErrForbidden, …), for the platform to restore
+					}
 				}
 				return out, nil
 			})

@@ -99,9 +99,12 @@ func (cl *Client) do(ctx context.Context, c Caller, method, path string, query u
 	if _, err := ownSubject(cl.App, c); err != nil {
 		return zero, err
 	}
-	token, err := cl.Token(ctx, c)
-	if err != nil {
-		return zero, err
+	token := sessionToken(ctx) // the agent's delegated session (Drafts), else the TokenSource's
+	if token == "" {
+		var err error
+		if token, err = cl.Token(ctx, c); err != nil {
+			return zero, err
+		}
 	}
 	base, err := cl.baseURL()
 	if err != nil {

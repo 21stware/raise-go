@@ -1520,7 +1520,7 @@ type AppLedgerService struct{ c *Client }
 // 向经营记账记一笔（本应用来源）
 // 需要范围 `app.ledger:post`。English: enqueues one posting in the platform's outbox and starts its delivery to the books; answers the outbox key.
 //
-// `sourceApp` 必须是调用的应用，否则 403 `forbidden`。`sourceApp + sourceRef + kind` 是记账的去重键：同一组合只记一次。`direction` 是 `in` 或 `out`，`amountCents` 大于 0（分），`currency` 省略为组织的币种（不做换算，别的币种会被拒绝），`occurredOn` 省略为组织时区的今天。
+// `sourceApp` 必须是调用的应用，否则 403 `forbidden`；例外是本应用自己的网关收款按渠道记（与所有渠道记账一样）：`sourceApp` 为 `channel:wechat` 或 `channel:alipay`，`sourceRef` 为 `k3://payments/order/{id}`，那笔支付单是本应用在这个渠道建的、已付款，金额不超过它。English: `sourceApp` must be the calling app, or `channel:{wechat|alipay}` with `sourceRef` `k3://payments/order/{id}` of a paid payment order the app made on that channel, the amount within it. `sourceApp + sourceRef + kind` 是记账的去重键：同一组合只记一次。`direction` 是 `in` 或 `out`，`amountCents` 大于 0（分），`currency` 省略为组织的币种（不做换算，别的币种会被拒绝），`occurredOn` 省略为组织时区的今天。
 //
 // `reverses` 写某个更早的同来源同引用的记账的 `kind`，本笔是它的冲销（金额必须相同、方向相反，不能同时是账单）。`settles` 写某笔开出账单的更早记账的 `kind`，本笔是对这张账单的付款。这两个字段互斥，也都不能与 `bill` 同用，违反是 422。
 func (s *AppLedgerService) Post(ctx context.Context, body *AppLedgerPostRequest, opts ...CallOption) (*AppLedgerPosted, error) {
@@ -2761,6 +2761,21 @@ func (s *AppResourcesService) Get(ctx context.Context, typ string, id string, p 
 	return &out, nil
 }
 
+// 一个资源类型的声明
+// 需要范围 `app.resources:read`。English: the declared kind as the platform keeps it: what one resource of it is called (`name` in Chinese, `nameEn` in English, from the manifest's `resources[]`; empty when not declared), its levels and switches, whether it takes requests or can be published, and whether it is a tree type (`tree`, with `parent` on a node type).
+//
+// 平台的分享对话框用 `name` / `nameEn` 称呼这个资源（「这个笔记」）；没写时说「这个内容」。`levels` 没声明时是全部四级，`switches` 没声明时是空对象。本应用当前安装的版本没有声明这个类型（或类型不以 `{本应用 id}.` 开头）是 404 `not_found`：分享对话框据此区分「类型没登记」和「这一项找不到」。
+func (s *AppResourcesService) Kind(ctx context.Context, typ string) (*AppResourceKind, error) {
+	path := "/access/" + url.PathEscape(typ)
+	var q url.Values
+	var ro requestOptions
+	var out AppResourceKind
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // 读调用者自己对一个资源的申请
 // 需要范围 `app.resources:read`。English: the caller's own requests on the resource, newest first, at most 100.
 //
@@ -2991,6 +3006,28 @@ func (s *AppResourcesService) SetGeneral(ctx context.Context, typ string, id str
 	return &out, nil
 }
 
+// 节点停止或恢复继承上面的名单
+// 需要范围 `app.resources:write`。English: a node of a tree type stops or restores inheriting what is above it (the platform's share dialog: 「仅名单上的人可访问」). Its place does not change; moving stays the app's.
+//
+// 只用于树类型的节点类型。页面会话的人要能管理这个节点（状态限制之前的级别），应用自己的令牌不受限。停止继承时，节点现在的有效名单成为它自己的名单（名字从写下每一条的地方取），停止的人保留管理级别，所以开关本身不会让谁失去访问；没有管理者时是 422。恢复继承时，去掉上面已经以相同或更高级别给出的条目。和现在相同时什么也不改。之后发 access.changed，记审计 access.tree.inherit。返回集合变了的节点。
+func (s *AppResourcesService) SetInherit(ctx context.Context, typ string, id string, body *AppAccessTreeInherit, opts ...CallOption) (*AppAccessTreeChanged, error) {
+	path := "/access/" + url.PathEscape(typ) + "/" + url.PathEscape(id) + "/inherit"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppAccessTreeChanged
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "PUT", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // 设置资源的开关
 // 需要范围 `app.resources:write`。English: sets the switches the type declares (`resources[].switches`), e.g. `explore`, and returns the list.
 //
@@ -3024,7 +3061,7 @@ func (s *AppResourcesService) SetToggles(ctx context.Context, typ string, id str
 //
 // `kind` 是 `user`、`unit`（部门）、`role`、`everyone`（所有人）之一，`level` 是 `view`、`comment`、`edit` 或 `manage`，`expiresAt` 省略为不过期。调用者需要有分享的权力（管理级别，或类型开着允许分享的开关）。给人的分享会通知对方。
 //
-// 树类型：在根或节点的显式名单上加一条或改一条（同一 `kind` + `principal` 只有一条），正文同上但没有 `expiresAt`。应用自己的令牌可以调用；页面会话需要对这个根或节点有管理级别（名单给出的级别，不看状态），看不到是 404 `not_found`，看得到但不能管理是 403 `forbidden`。返回 `AccessTreeChanged`。审计动作 access.tree.entries。English: on a tree type adds or changes one explicit entry; a person needs manage.
+// 树类型：在根或节点的显式名单上加一条或改一条（同一 `kind` + `principal` 只有一条），正文同上，`expiresAt` 是这一条的到期时间。级别不能超过类型声明的 `levels`。应用自己的令牌可以调用；页面会话需要对这个根或节点有管理级别（名单给出的级别，不看状态），或者在开了 `reshare` 的根下能编辑这个节点（只能给到、改到 edit），看不到是 404 `not_found`，看得到但不能管理是 403 `forbidden`。返回 `AccessTreeChanged`。审计动作 access.tree.entries。English: on a tree type adds or changes one explicit entry; a person needs manage.
 func (s *AppResourcesService) Share(ctx context.Context, typ string, id string, body *AppResourceShareRequest, opts ...CallOption) (*AppResourceGrant, error) {
 	path := "/access/" + url.PathEscape(typ) + "/" + url.PathEscape(id) + "/grants"
 	var q url.Values
