@@ -30,6 +30,9 @@ const (
 // Manifest is the machine-readable description of an App (SYSTEM-DESIGN §7.2).
 type Manifest struct {
 	Protocol string `json:"protocol"`
+	// Platform is the range of platform API versions the App needs (platform.go; ADR-0130 T3), such as ">=1.1" or ">=1.1, <2":
+	// the platform refuses to publish or install a version whose range leaves out its own PlatformAPI. Empty: any.
+	Platform string `json:"platform,omitempty"`
 	ID       string `json:"id"`
 	Version  string `json:"version"`
 	Level    Level  `json:"level"`
@@ -161,8 +164,10 @@ type DataDecl struct {
 	Destructive bool `json:"destructive,omitempty"`
 }
 
-// DataEventKinds are the platform's data events an App may receive.
-var DataEventKinds = []string{"tenant.deleted", "site.deleted", "customer.merged"}
+// DataEventKinds are the platform's data events an App may receive (events.receives): delivered at least once to every App that
+// declares the kind, in the platform's process or its own (POST /k3/events/{kind}; ADR-0130 T11). app.uninstalled goes only to the
+// App that was uninstalled, subject its own id.
+var DataEventKinds = []string{"tenant.deleted", "site.deleted", "customer.merged", "app.uninstalled"}
 
 // ProvidersDecl declares the providers an App answers (ADR-0130 §2.4). Each is on (true) or absent; the paths are fixed by the
 // protocol (k3/providers/{kind}/…) so a manifest cannot point the platform elsewhere. An App in the platform's process is wired by the
@@ -781,6 +786,9 @@ func (m *Manifest) Validate() error {
 	if !Supported(m.Protocol) {
 		add("protocol %q not supported (platform speaks %s)", m.Protocol, Protocol)
 	}
+	if _, err := ParsePlatformRange(m.Platform); err != nil {
+		add("%s", err)
+	}
 	if !isIdent(m.ID) {
 		add("id %q: lowercase letters, digits, - and _ only", m.ID)
 	}
@@ -866,6 +874,14 @@ func (m *Manifest) Validate() error {
 				add("events.receives[%d] %q: one of %s", i, k, strings.Join(DataEventKinds, ", "))
 			}
 		}
+	}
+	// Services and data events reach the App's own server at the origin of its ops address (svcrun, appevents): without one
+	// every run and every event fails at delivery, after the version is published (raise-growth journey, 2026-11-02).
+	if m.OpsAPI == "" && len(m.Services) > 0 {
+		add("services: opsApi is required: the platform delivers each run to the service's endpoint on the origin of the App's ops address")
+	}
+	if m.OpsAPI == "" && m.Events != nil && len(m.Events.Receives) > 0 {
+		add("events.receives: opsApi is required: the platform delivers each data event to POST /k3/events/{kind} on the origin of the App's ops address")
 	}
 	m.validateSiteActions(add)
 	m.validateContent(add)

@@ -169,7 +169,20 @@ type (
 	RealtimeProjecting interface {
 		RealtimeProjected(ctx context.Context, d Deps, tenant string, ev realtime.Projected) error
 	}
+	// AccessListening hears access.changed (k3.EventAccessChanged {type, id}): the list of one of the app's declared resources
+	// changed in the access kernel, for instance in the platform's share dialog, which writes the kernel without the app's routes
+	// (ADR-0130 §2.6.2, implementation note of 2026-11-02: the kernel owns the entries, apps re-read). An app that keeps
+	// something the kernel decides (a cache, a visibility mirror, a node's inherit flag) re-reads it here. It is told after the
+	// change committed, at least once; an error is retried by the platform. The manifest declares AccessChangedService.
+	AccessListening interface {
+		AccessChanged(ctx context.Context, d Deps, tenant, typ, id string) error
+	}
 )
+
+// AccessChangedService is the service of event:access.changed an AccessListening app declares in its manifest (Services).
+func AccessChangedService() k3.Service {
+	return k3.Service{ID: "access-changed", Title: "权限变化", Trigger: []string{k3.TriggerEvent + k3.EventAccessChanged}, Endpoint: "/k3/services/access-changed"}
+}
 
 // serveKnowledge mounts the providers above (retrieve, embeddings) that a's manifest declares and its code provides.
 func serveKnowledge(mux *http.ServeMux, a App, d Deps, decl *k3.ProvidersDecl) {
@@ -310,6 +323,18 @@ func servePlatformEvents(mux *http.ServeMux, a App, d Deps, m *k3.Manifest) {
 				return Invalid("not a realtime.doc.projected event")
 			}
 			return p.RealtimeProjected(r.Context(), d, in.Input.Tenant, ev)
+		})
+	}
+	if l, ok := a.(AccessListening); ok {
+		handle(k3.EventAccessChanged, func(r *http.Request, in eventRun) error {
+			var ev struct {
+				Type string `json:"type"`
+				ID   string `json:"id"`
+			}
+			if err := json.Unmarshal(in.Input.Data, &ev); err != nil || ev.Type == "" || ev.ID == "" {
+				return Invalid("not an access.changed event")
+			}
+			return l.AccessChanged(r.Context(), d, in.Input.Tenant, ev.Type, ev.ID)
 		})
 	}
 }

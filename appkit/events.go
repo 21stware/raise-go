@@ -10,18 +10,22 @@ import (
 	"github.com/21stware/raise-go/k3"
 )
 
-// The platform's data events (ADR-0130 §2.5 data 1 and 7): an app whose tables live in its own schema points at the platform's
-// tenants and sites by id only (no foreign key leaves the schema), so the platform tells it, at least once, when one of them is gone.
+// The platform's data events (ADR-0130 §2.5 data 1 and 7, T11): an app whose tables live in its own schema points at the platform's
+// tenants, sites and customers by id only (no foreign key leaves the schema), so the platform tells it, at least once, when one of
+// them is gone or merged, or when the tenant uninstalls the app. Any app that declares a kind in events.receives receives it.
 const (
 	EventTenantDeleted = "tenant.deleted" // subject: the tenant
 	EventSiteDeleted   = "site.deleted"   // subject: the site's id
 	// EventCustomerMerged: the customer centre merged one customer into another; subject: MergedSubject. An app that keeps customer
 	// ids moves what pointed at the merged one to the kept one.
 	EventCustomerMerged = "customer.merged"
+	// EventAppUninstalled: the tenant removed this app's installation; subject: the app's own id. Only the app that was uninstalled
+	// hears it. Uninstalling deletes nothing: the app decides what to keep (the tenant may install it again).
+	EventAppUninstalled = "app.uninstalled"
 )
 
 // DataEvents are the kinds of DataEvent an app may declare in its manifest (events.receives).
-var DataEvents = []string{EventTenantDeleted, EventSiteDeleted, EventCustomerMerged}
+var DataEvents = []string{EventTenantDeleted, EventSiteDeleted, EventCustomerMerged, EventAppUninstalled}
 
 // MergedSubject is the subject of a customer.merged event: "<merged id>><kept id>".
 func MergedSubject(merged, into string) string { return merged + ">" + into }

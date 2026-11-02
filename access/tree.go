@@ -100,6 +100,29 @@ type Mine struct {
 	Bypass    bool           `json:"bypass,omitempty"`
 }
 
+// Levels is a page of a person's levels on the roots or nodes of one type, as the lists alone give them: before the states
+// (trashed, archived, published only) and before the tenant administrator's bypass, which the app applies itself. Levels holds
+// each id the lists name the person on at the asked level or above; Next is the cursor of the next page ("" at the end).
+type Levels struct {
+	Levels map[string]int `json:"levels"`
+	Next   string         `json:"next,omitempty"`
+}
+
+// Lister is a Tree that pages a person's levels on a type (GET /app/v1/access/{type}/visible?raw=true). It is for an app that
+// filters its own lists in its own SQL and keeps no copy of a node's set (ADR-0130 §2.6.2, implementation note of 2026-11-02: the
+// kernel owns the entries, apps re-read). The platform's /app/v1 Tree (appkit's Client.Tree) is one.
+type Lister interface {
+	// Levels is one page, at min (View … Manage) or above; after is Levels.Next of the previous page.
+	Levels(ctx context.Context, c provide.Caller, typ string, min int, after string) (Levels, error)
+}
+
+// NodeReader is a Tree that reads a root or node as the kernel has it (GET /app/v1/access/{type}/{id}): where it sits, whether it
+// inherits and what it is called (Trashed is not answered). An app that keeps its own tree re-reads a node's inherit after the
+// platform's share dialog changed it (event access.changed). The platform's /app/v1 Tree is one.
+type NodeReader interface {
+	Node(ctx context.Context, tenant, typ, id string) (Node, error)
+}
+
 // Tree is the kernel's tree model for the app's types. typ is a declared type ("<app>.<kind>"); a root type's calls name roots, a
 // node type's calls name nodes.
 type Tree interface {

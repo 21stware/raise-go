@@ -18,7 +18,11 @@ func (cl *Client) Tree() sdk.Tree { return tree{cl} }
 
 type tree struct{ cl *Client }
 
-var _ sdk.Tree = tree{}
+var (
+	_ sdk.Tree       = tree{}
+	_ sdk.Lister     = tree{}
+	_ sdk.NodeReader = tree{}
+)
 
 func treePath(typ, id string, rest ...string) string {
 	p := "/app/v1/access/" + pathEscape(typ)
@@ -42,11 +46,17 @@ func (t tree) PutRoot(ctx context.Context, tenant, typ, id string, spec sdk.Root
 			body[k] = true
 		}
 	}
+	if spec.Name != "" { // "" keeps the kernel's
+		body["name"] = spec.Name
+	}
 	return t.cl.call(ctx, Caller{Tenant: tenant}, "POST", treePath(typ, id), nil, body, nil)
 }
 
 func (t tree) PutNode(ctx context.Context, tenant, typ, id string, spec sdk.NodeSpec) (sdk.Changed, error) {
 	body := map[string]any{"root": spec.Root, "parent": spec.Parent, "inherit": spec.Inherit, "trashed": spec.Trashed}
+	if spec.Name != "" { // "" keeps the kernel's
+		body["name"] = spec.Name
+	}
 	var out treeChanged
 	if err := t.cl.call(ctx, Caller{Tenant: tenant}, "POST", treePath(typ, id), nil, body, &out); err != nil {
 		return nil, err
@@ -94,6 +104,47 @@ type treeView struct {
 	Set       string      `json:"set"`
 	Level     string      `json:"level"`
 	Reason    string      `json:"reason"`
+	Name      string      `json:"name"`
+	Root      string      `json:"root"`
+	Parent    string      `json:"parent"`
+	Inherit   bool        `json:"inherit"`
+}
+
+// Node is sdk.NodeReader: GET /app/v1/access/{type}/{id} with the app's token (where it sits, whether it inherits, its name).
+func (t tree) Node(ctx context.Context, tenant, typ, id string) (sdk.Node, error) {
+	var v treeView
+	if err := t.cl.call(ctx, Caller{Tenant: tenant}, "GET", treePath(typ, id), nil, nil, &v); err != nil {
+		return sdk.Node{}, err
+	}
+	return sdk.Node{ID: id, NodeSpec: sdk.NodeSpec{Root: v.Root, Parent: v.Parent, Inherit: v.Inherit, Name: v.Name}}, nil
+}
+
+// Levels is sdk.Lister: GET /app/v1/access/{type}/visible?raw=true for the person (the app's token naming them, as Mine does).
+func (t tree) Levels(ctx context.Context, c provide.Caller, typ string, min int, after string) (sdk.Levels, error) {
+	if min < sdk.View || min > sdk.Manage {
+		return sdk.Levels{}, fmt.Errorf("%w: min is View … Manage", ErrInvalid)
+	}
+	q := url.Values{"user": {c.User}, "raw": {"true"}, "level": {levelName(min)}, "limit": {"1000"}}
+	if after != "" {
+		q.Set("cursor", after)
+	}
+	var in struct {
+		IDs    []string          `json:"ids"`
+		Next   string            `json:"next"`
+		Levels map[string]string `json:"levels"`
+	}
+	if err := t.cl.call(ctx, c, "GET", treePath(typ, "visible"), q, nil, &in); err != nil {
+		return sdk.Levels{}, err
+	}
+	out := sdk.Levels{Levels: make(map[string]int, len(in.IDs)), Next: in.Next}
+	for _, id := range in.IDs {
+		l := parseLevel(in.Levels[id])
+		if l == 0 { // a platform without raw=true answers the clamped ids and no levels: never take those for the raw ones
+			return sdk.Levels{}, fmt.Errorf("the platform answered no level for %s:%s (it predates raw levels)", typ, id)
+		}
+		out.Levels[id] = l
+	}
+	return out, nil
 }
 
 func (t tree) Entries(ctx context.Context, tenant, typ, id string) ([]sdk.Entry, error) {

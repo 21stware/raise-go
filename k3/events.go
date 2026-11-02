@@ -17,7 +17,7 @@ const MaxEmits = 32
 
 // PlatformEventKinds are the kinds the platform itself publishes to services (no App publishes them, whatever its id).
 var PlatformEventKinds = []string{"deal", "payment", "app.installed", "permissions.changed", "realtime.doc.projected", "access.changed",
-	"customer.consent.changed", "tenant.deleted", "site.deleted", "customer.merged"}
+	"customer.consent.changed", "tenant.deleted", "site.deleted", "customer.merged", "app.uninstalled"}
 
 var emitWhat = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*){0,2}$`)
 

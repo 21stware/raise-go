@@ -4,6 +4,7 @@ package raise
 
 import (
 	"context"
+	"io"
 	"net/url"
 	"strconv"
 )
@@ -315,6 +316,24 @@ func (s *AppBlobsService) DeletePrefix(ctx context.Context, body *AppBlobDeleteP
 	return &out, nil
 }
 
+// 读取本应用文件夹里一个对象的字节
+// 需要范围 `app.blobs:read`。English: streams the bytes of the object `key` of the app's folder.
+//
+// 回答的正文是对象的原始字节，`Content-Type`、`Content-Length`、`Last-Modified` 取自对象，并带 `X-Content-Type-Options: nosniff`。对象不存在是 404 `not_found`。
+// SDK：Go `App.Blobs.Get` 回答 `RawResponse`（调用方读完 `Body` 后关闭），TS `app.blobs.get` 回答 fetch 的 `Response`。只要元数据用 `blobs.head`。
+//
+// The answer is raw bytes: RawResponse.Body streams them and the caller closes it. Its headers: Content-Length, Last-Modified.
+func (s *AppBlobsService) Get(ctx context.Context, key string) (*RawResponse, error) {
+	path := "/blobs/objects/" + (&url.URL{Path: key}).EscapedPath()
+	var q url.Values
+	var ro requestOptions
+	var out RawResponse
+	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // 读取一个对象的元数据
 // 需要范围 `app.blobs:read`。English: the size, type and last write time of the object `key`, without its bytes.
 //
@@ -367,6 +386,30 @@ func (s *AppBlobsService) Presign(ctx context.Context, body *AppBlobPresignReque
 		reqBody = body
 	}
 	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 把一段字节存成本应用文件夹里的一个对象
+// 需要范围 `app.blobs:write`。English: stores the request body, raw bytes, as the object `key` in the app's folder of the tenant's file store (the platform's, or the tenant's own bucket).
+//
+// 路径里的 `{key...}` 吃掉余下的整个路径，键必须以 `apps/{本应用 id}/` 开头，且其后至少还有一个字符；不能有空的、`.` 或 `..` 段，不能有反斜杠和控制字符，最长 1024 字节。正文就是对象的字节（不是 JSON），`Content-Type` 请求头是对象的类型（没有时按 `application/octet-stream`），必须带 `Content-Length`（没有是 411）。经平台存的单个对象最大 512 MiB，更大的用 `POST /blobs/presign` 拿上传地址直传。企业的存储额度对两条路都有效。成功回答 204，没有正文。
+// SDK：Go `App.Blobs.Put`（`io.Reader`、长度、类型），TS `app.blobs.put`（`Blob`、`ArrayBuffer`、`Uint8Array` 或流）。
+//
+// body is sent as it is (raw bytes, not JSON). size is its length in bytes; a negative size is taken from the reader (Len, or
+// seeking), and a reader with neither goes out without a Content-Length. A reader that can seek is rewound for a retry; any
+// other is sent once. contentType is the body's Content-Type (empty: application/octet-stream).
+func (s *AppBlobsService) Put(ctx context.Context, key string, body io.Reader, size int64, contentType string, opts ...CallOption) (*map[string]any, error) {
+	path := "/blobs/objects/" + (&url.URL{Path: key}).EscapedPath()
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out map[string]any
+	reqBody := newRawBody(body, size, contentType, "application/octet-stream")
+	if err := s.c.doApp(ctx, "PUT", path, q, reqBody, &out, ro); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -1670,6 +1713,30 @@ func (s *AppModelsService) Status(ctx context.Context) (*AppModelStatus, error) 
 	var ro requestOptions
 	var out AppModelStatus
 	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 把一段录音转成文字
+// 需要范围 `app.models:use`。English: turns the recording in the body into text.
+//
+// 正文是录音的原始字节，`Content-Type` 必须是 `audio/…`，最大 25 MB，不能为空。回答 `{text}`。企业没有开放模型时是 503，正文里 code 为 model_off（不在 ErrorCode 里，按状态和这个字段判断）；预算或限流的拒绝保留模型路由器的状态和原话。
+// SDK：Go `App.Models.Transcribe`，TS `app.models.transcribe`；录音的 `Content-Type` 由调用方给出。
+//
+// body is sent as it is (raw bytes, not JSON). size is its length in bytes; a negative size is taken from the reader (Len, or
+// seeking), and a reader with neither goes out without a Content-Length. A reader that can seek is rewound for a retry; any
+// other is sent once. contentType is the body's Content-Type (audio/*); name it.
+func (s *AppModelsService) Transcribe(ctx context.Context, body io.Reader, size int64, contentType string, opts ...CallOption) (*AppModelText, error) {
+	path := "/models/transcribe"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppModelText
+	reqBody := newRawBody(body, size, contentType, "")
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -3125,6 +3192,9 @@ func (s *AppResourcesService) Visible(ctx context.Context, typ string, p *AppRes
 		}
 		if p.Limit != nil {
 			q.Set("limit", strconv.Itoa(*p.Limit))
+		}
+		if p.Raw != nil {
+			q.Set("raw", strconv.FormatBool(*p.Raw))
 		}
 		if p.User != "" {
 			q.Set("user", p.User)

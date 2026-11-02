@@ -216,6 +216,8 @@ type AppResourcesVisibleParams struct {
 	Level string
 	// 每页条数，默认 200，最多 1000
 	Limit *int
+	// 树类型：只按名单算，不套状态（回收站、归档、只读发布版）也不套企业管理员的越权，`agent` 不起作用；回收站里的节点也列出，每个 id 的级别在 `levels`。给在自己的 SQL 里过滤列表、自己套状态和越权的应用（不留节点集合 id 的副本）。English: the lists alone, before the states and the bypass, with each id's level in levels
+	Raw *bool
 	// 应用自己的令牌必须带：查谁
 	User string
 }
@@ -1531,6 +1533,14 @@ type AppCustomerIdentityView struct {
 	Verified bool   `json:"verified"`
 }
 
+// 平台投递一个数据事件的正文（appkit.DataEventCall）
+type AppDataEventDelivery struct {
+	// 事件说的是什么：租户 id、站点 id、<被合并>><保留> 的客户 id，或本应用的 id（app.uninstalled）
+	Subject string `json:"subject"`
+	// 租户 id，与断言里的租户相同
+	Tenant string `json:"tenant"`
+}
+
 // 平台投递一次服务运行的正文；input 的形状随触发器而定
 type AppServiceDelivery struct {
 	// 第几次投递
@@ -1544,6 +1554,16 @@ type AppServiceDelivery struct {
 	// 触发器，例如 "event:deal"
 	Trigger string `json:"trigger"`
 }
+
+// 应用可以在清单 events.receives 里声明的平台数据事件（k3.DataEventKinds）
+type AppDataEventKind string
+
+const (
+	AppDataEventKindAppUninstalled AppDataEventKind = "app.uninstalled"
+	AppDataEventKindCustomerMerged AppDataEventKind = "customer.merged"
+	AppDataEventKindSiteDeleted    AppDataEventKind = "site.deleted"
+	AppDataEventKindTenantDeleted  AppDataEventKind = "tenant.deleted"
+)
 
 // 应用里一个根的状态和它下面的全部节点
 type AppAccessReconcile struct {
@@ -3210,6 +3230,8 @@ type AppResourceTransferRequest struct {
 type AppResourceVisible struct {
 	// 按 id 排序的一页
 	Ids []string `json:"ids"`
+	// 只在树类型带 `raw=true` 时有：id → 名单给出的级别（`view`、`comment`、`edit`、`manage`）
+	Levels map[string]string `json:"levels,omitempty"`
 	// 下一页的 cursor；空字符串是到头了
 	Next string `json:"next"`
 }

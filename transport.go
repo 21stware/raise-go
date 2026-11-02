@@ -21,7 +21,8 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 		return errors.New("raise: set a base URL with WithBaseURL (the /open/v1 root)")
 	}
 	var payload []byte
-	if body != nil {
+	raw, _ := body.(*rawBody)
+	if body != nil && raw == nil {
 		var err error
 		payload, err = json.Marshal(body)
 		if err != nil {
@@ -34,14 +35,24 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 
 	var refreshed bool
 	attempts := 0
+	var lastErr error
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		err := c.roundTrip(ctx, method, path, query, payload, out, ro)
+		if raw != nil {
+			if err := raw.ready(); err != nil {
+				if lastErr != nil {
+					return lastErr // a raw body that cannot be sent again: the failure of the one try stands
+				}
+				return err
+			}
+		}
+		err := c.roundTrip(ctx, method, path, query, payload, raw, out, ro)
 		if err == nil {
 			return nil
 		}
+		lastErr = err
 		var apiErr *Error
 		if errors.As(err, &apiErr) && apiErr.Status == http.StatusUnauthorized && apiErr.Code == "invalid_token" && !ro.skipAuth && !refreshed {
 			refreshed = true
@@ -73,7 +84,7 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 	}
 }
 
-func (c *Client) roundTrip(ctx context.Context, method, path string, query url.Values, payload []byte, out any, ro requestOptions) error {
+func (c *Client) roundTrip(ctx context.Context, method, path string, query url.Values, payload []byte, raw *rawBody, out any, ro requestOptions) error {
 	root := c.baseURL
 	if ro.root != "" {
 		root = ro.root
@@ -90,10 +101,18 @@ func (c *Client) roundTrip(ctx context.Context, method, path string, query url.V
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Accept", "application/json")
+	rawOut, streams := out.(*RawResponse)
+	if streams {
+		req.Header.Set("Accept", "*/*")
+	} else {
+		req.Header.Set("Accept", "application/json")
+	}
 	req.Header.Set("User-Agent", c.userAgent)
 	if payload != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	if raw != nil {
+		raw.apply(req)
 	}
 	for k, v := range ro.headers {
 		req.Header.Set(k, v)
@@ -115,19 +134,23 @@ func (c *Client) roundTrip(ctx context.Context, method, path string, query url.V
 	if err != nil {
 		return netErr{err}
 	}
+	if streams && resp.StatusCode < 400 {
+		*rawOut = newRawResponse(resp) // the caller reads and closes the body
+		return nil
+	}
 	defer resp.Body.Close()
-	raw, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return netErr{err}
 	}
 
 	if resp.StatusCode >= 400 {
-		return decodeAPIError(resp, raw)
+		return decodeAPIError(resp, respBody)
 	}
-	if out == nil || resp.StatusCode == http.StatusNoContent || len(bytes.TrimSpace(raw)) == 0 {
+	if out == nil || resp.StatusCode == http.StatusNoContent || len(bytes.TrimSpace(respBody)) == 0 {
 		return nil
 	}
-	if err := json.Unmarshal(raw, out); err != nil {
+	if err := json.Unmarshal(respBody, out); err != nil {
 		return fmt.Errorf("raise: decode response: %w", err)
 	}
 	return nil
