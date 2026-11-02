@@ -64,6 +64,12 @@ const (
 	// always true and Service names the App's MCP service. It reads and drafts only: the App must not change anything because of it;
 	// a change the tool wants is a draft for that person (POST /app/v1/drafts with "for": Sub), which the person applies.
 	ViaMCP = "mcp"
+	// ViaOpen marks the assertion the platform signs when it forwards a call of its open API (/open/v1/…, ADR-0079) to the App that
+	// answers it (ADR-0130 P11 S3: the membership app's /open/v1/me/*). The platform's open gate has checked the caller's token and
+	// its scopes; the assertion is the whole grant: Sub is who the call is for ("customer:{id}" for a customer-mode token), Scopes what
+	// the token was granted, and InputDigest binds the request (OpenInput: method, path, query and body). The caller's own token and
+	// credential never reach the App.
+	ViaOpen = "open"
 )
 
 // CallTTL is how long an assertion of the platform's call to an App lives (ADR-0130 §2.3: five minutes).
@@ -95,6 +101,8 @@ type AssertionClaims struct {
 	Service string `json:"service,omitempty"`
 	Trigger string `json:"trigger,omitempty"`
 	RunID   string `json:"runId,omitempty"`
+	// Scopes are the open API scopes the caller's token was granted (Via == ViaOpen).
+	Scopes []string `json:"scopes,omitempty"`
 }
 
 // AssertionTTL is deliberately short: an assertion is consumed immediately by the Draft run.
@@ -115,6 +123,24 @@ func InputDigest(input json.RawMessage) (string, error) {
 	}
 	sum := sha256.Sum256(c)
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+// OpenInput is what the assertion of a forwarded open API call (ViaOpen) signs: the request's method, path, raw query and JSON body
+// (none: null), so the App checks the call it is answering is the one the platform's gate let through.
+func OpenInput(method, path, rawQuery string, body []byte) (json.RawMessage, error) {
+	b := json.RawMessage("null")
+	if len(bytes.TrimSpace(body)) > 0 {
+		if !json.Valid(body) {
+			return nil, fmt.Errorf("open input: the body is not JSON")
+		}
+		b = body
+	}
+	return json.Marshal(struct {
+		Method string          `json:"method"`
+		Path   string          `json:"path"`
+		Query  string          `json:"query"`
+		Body   json.RawMessage `json:"body"`
+	}{method, path, rawQuery, b})
 }
 
 // ExecuteRequest is the body of POST {opsApi}/ops/{op}/execute and /dry-run.

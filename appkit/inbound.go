@@ -76,7 +76,10 @@ func Inbound(keys k3.KeySource, app string, next http.Handler) http.Handler {
 }
 
 // platformVias are the assertions of the platform's calls Inbound accepts (ops are the ops handler's).
-var platformVias = []string{k3.ViaEvent, k3.ViaSiteAction, k3.ViaProvider, k3.ViaService}
+var platformVias = []string{k3.ViaEvent, k3.ViaSiteAction, k3.ViaProvider, k3.ViaService, k3.ViaOpen}
+
+// openPrefix is where an app answers the platform's open API calls it forwards (ViaOpen): only there, and only those.
+const openPrefix = "/k3/open/v1/"
 
 // verifyCall checks the platform's assertion of a call (its via one of vias) and that it was signed for exactly this body. The body is
 // read and put back.
@@ -91,6 +94,14 @@ func verifyCall(ctx context.Context, r *http.Request, keys k3.KeySource, app, to
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	signed := body
+	if open := strings.HasPrefix(r.URL.Path, openPrefix); open != (c.Via == k3.ViaOpen) || open && c.Sub == "" {
+		return Platform{}, false // an open API call is answered for the one the gate let through, and nothing else reaches those routes
+	}
+	if c.Via == k3.ViaOpen { // the platform signs the request it forwards: method, path, query and body (k3.OpenInput)
+		if signed, err = k3.OpenInput(r.Method, r.URL.Path, r.URL.RawQuery, body); err != nil {
+			return Platform{}, false
+		}
+	}
 	if c.Via == k3.ViaService { // the service runtime signs the run's input, not the delivery around it
 		var run struct {
 			Input json.RawMessage `json:"input"`
@@ -103,7 +114,7 @@ func verifyCall(ctx context.Context, r *http.Request, keys k3.KeySource, app, to
 	if d, err := k3.InputDigest(signed); err != nil || d != c.InputDigest {
 		return Platform{}, false
 	}
-	p := Platform{Tenant: c.Tenant, Via: c.Via, Op: c.Op, Key: c.IdempotencyKey}
+	p := Platform{Tenant: c.Tenant, Via: c.Via, Op: c.Op, Key: c.IdempotencyKey, Scopes: c.Scopes}
 	if c.Sub != "" && c.Sub != "platform" && !strings.HasPrefix(c.Sub, appPrefix) { // an app's subject is no person (noPerson)
 		p.Caller = Caller{Tenant: c.Tenant, User: c.Sub, Name: c.Name, Roles: c.Roles}
 	}
@@ -115,6 +126,9 @@ func verifyCall(ctx context.Context, r *http.Request, keys k3.KeySource, app, to
 type Platform struct {
 	Tenant, Via, Op, Key string
 	Caller               Caller // zero when no person is behind the call
+	// Scopes are what the caller's token was granted, for a forwarded open API call (Via k3.ViaOpen; Caller.User is who it is for,
+	// "customer:{id}" for a customer). The app checks the scope its route needs.
+	Scopes []string
 }
 
 type platformKey struct{}

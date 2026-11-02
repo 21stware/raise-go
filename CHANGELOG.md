@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.1 — 2026-11-01
+
+- `k3`: `ViaOpen` (`"open"`), `AssertionClaims.Scopes` and `OpenInput` (ADR-0130 P11 S3): the platform forwards a call of its open API (`/open/v1/…`) to the App that answers it with an assertion of via `open` whose subject is who the call is for (`customer:{id}` for a customer-mode token), whose `scopes` are what the caller's token was granted and whose input digest binds the request (`OpenInput`: method, path, raw query, JSON body or null). The caller's own token and credential never reach the App.
+- `appkit`: `Inbound` accepts the `open` assertion on `/k3/open/v1/…` only, and nothing else there; one without a subject, or for another request, is refused (401). `Platform.Scopes` carries the granted scopes (`PlatformOf`); the app's route checks the scope it needs.
+
 ## 0.7.0 — 2026-11-01
 
 - `appkit` (ADR-0130 P11 S3, as the platform's own app runner `internal/remoteapp`): only the app's own call goes with its tenant token, and the app's own call never carries the person's page session. `Client.App` and `Tokens.App` name the app the client calls for (set both to the manifest's id). A caller with no subject, or exactly `"app:"+App`, is the app's own call: its tenant token, even inside a person's request (before, `Tokens.Source` handed out the person's page session for any caller while one was on the context); a person's call keeps the page session; any other `"app:…"` subject (another app's, a prefix match, or any while `App` is empty) is refused with `ErrForbidden` before a token is asked for. No request makes such a subject a person: `Inbound` refuses an App token whose subject starts with `app:` (401), a platform assertion naming one leaves `Platform.Caller` zero, the callers of the signed deal, grant and hold-released bodies that name one reach the app with no subject, and an op is refused (401) for an `app:` subject. An app that calls with its own `app:{id}` subject must set `Client.App` and `Tokens.App`.
