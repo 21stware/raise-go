@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.3 — 2026-11-02
+
+- kit: republished the packages that changed under a published version (raise-platform, raise-app-kit, raise-design, raise-doc-kit, raise-voucher-desk 0.2.1; raise-bridge, raise-app-sdk 1.0.1), so the 0.7.2 kit (raise-pages-ui, raise-office-engine) is released; no SDK API change.
+
+## 0.7.2 — 2026-11-02
+
+- kit: `@21stware/raise-pages-ui` and `@21stware/raise-office-engine` published (were the private `@kwork/pages-ui` and `@kwork/office-engine`; ADR-0130 P8 S3: the knowledge apps' consoles build from them in `raise-knowledge`); no SDK API change.
+
 ## 0.7.1 — 2026-11-01
 
 - `k3`: `ViaOpen` (`"open"`), `AssertionClaims.Scopes` and `OpenInput` (ADR-0130 P11 S3): the platform forwards a call of its open API (`/open/v1/…`) to the App that answers it with an assertion of via `open` whose subject is who the call is for (`customer:{id}` for a customer-mode token), whose `scopes` are what the caller's token was granted and whose input digest binds the request (`OpenInput`: method, path, raw query, JSON body or null). The caller's own token and credential never reach the App.
