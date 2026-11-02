@@ -16,7 +16,9 @@ type AppAPI struct {
 	Entitlements  *AppEntitlementsService
 	Errors        *AppErrorsService
 	Events        *AppEventsService
+	Imports       *AppImportsService
 	Installations *AppInstallationsService
+	Intent        *AppIntentService
 	Ledger        *AppLedgerService
 	Links         *AppLinksService
 	Models        *AppModelsService
@@ -49,7 +51,9 @@ func newAppAPI(c *Client) *AppAPI {
 		Entitlements:  &AppEntitlementsService{c: c},
 		Errors:        &AppErrorsService{c: c},
 		Events:        &AppEventsService{c: c},
+		Imports:       &AppImportsService{c: c},
 		Installations: &AppInstallationsService{c: c},
+		Intent:        &AppIntentService{c: c},
 		Ledger:        &AppLedgerService{c: c},
 		Links:         &AppLinksService{c: c},
 		Models:        &AppModelsService{c: c},

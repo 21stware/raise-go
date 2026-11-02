@@ -30,6 +30,35 @@ type Access interface {
 	UnitOf(ctx context.Context, tenant, subject string) (string, error)
 }
 
+// AccessPoint is one question of AccessMany: a permission point and, for a read of an object type, the type id.
+type AccessPoint struct {
+	Point string `json:"point"`
+	Type  string `json:"type,omitempty"`
+}
+
+// AccessBatcher is an Access that answers several points in one call (POST /app/v1/access/points; the Client's Access is one).
+// It is apart from Access so that an Access written before it (a test double) stays one.
+type AccessBatcher interface {
+	AccessMany(ctx context.Context, tenant, subject string, platformRoles []string, points []AccessPoint) ([]AccessResult, error)
+}
+
+// AccessMany asks a for every point, results in the order of points: in batches when a is an AccessBatcher, one call per point
+// otherwise.
+func AccessMany(ctx context.Context, a Access, tenant, subject string, platformRoles []string, points []AccessPoint) ([]AccessResult, error) {
+	if b, ok := a.(AccessBatcher); ok {
+		return b.AccessMany(ctx, tenant, subject, platformRoles, points)
+	}
+	out := make([]AccessResult, len(points))
+	for i, p := range points {
+		r, err := a.Access(ctx, tenant, subject, platformRoles, p.Point, p.Type)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = r
+	}
+	return out, nil
+}
+
 // AccessResult is the tenant's answer for one permission point (the platform's permissions.Access; its JSON is that type's: the field
 // names as they are).
 type AccessResult struct {
@@ -89,32 +118,84 @@ func (a Authz) Point(perm string) string { return "app." + a.App + "." + perm }
 
 // Check evaluates one permission for a caller.
 func (a Authz) Check(ctx context.Context, c Caller, perm string) (Grant, error) {
-	g := Grant{Subject: c.User}
+	if g, done := a.override(c, perm); done {
+		return g, nil
+	}
+	return a.rules(ctx, c, perm, Grant{Subject: c.User})
+}
+
+// CheckMany is Check for several permissions with one question to the platform (Access.AccessMany: POST /app/v1/access/points when
+// Perms answers a batch, one call per point otherwise): the grants are in the order of perms. A page that shows what the caller may
+// do (a "me" endpoint) asks this once instead of once per point; nothing is remembered between calls.
+func (a Authz) CheckMany(ctx context.Context, c Caller, perms []string) ([]Grant, error) {
+	out := make([]Grant, len(perms))
+	var ask []int
+	for i, p := range perms {
+		if g, done := a.override(c, p); done {
+			out[i] = g
+			continue
+		}
+		ask = append(ask, i)
+	}
+	var accs []AccessResult
+	if a.Perms != nil && len(ask) > 0 {
+		points := make([]AccessPoint, len(ask))
+		for j, i := range ask {
+			points[j] = AccessPoint{Point: a.Point(perms[i])}
+		}
+		var err error
+		if accs, err = AccessMany(ctx, a.Perms, c.Tenant, c.User, c.Roles, points); err != nil {
+			return nil, err
+		}
+	}
+	for j, i := range ask {
+		var acc *AccessResult
+		if accs != nil {
+			acc = &accs[j]
+		}
+		out[i] = a.apply(c, perms[i], acc, Grant{Subject: c.User})
+	}
+	return out, nil
+}
+
+// override is the platform's say before the app's rules: an agent only reads, tenant.admin may do everything, tenant.auditor reads
+// everything. done is false when the rules decide.
+func (a Authz) override(c Caller, perm string) (g Grant, done bool) {
+	g = Grant{Subject: c.User}
 	readOnly := perm == "read" || perm == "view" || strings.HasSuffix(perm, ".read") || strings.HasSuffix(perm, ".view")
 	if c.Agent != "" && !readOnly {
-		return g, nil // an agent only reads, whoever it acts for (an administrator's agent included)
+		return g, true // an agent only reads, whoever it acts for (an administrator's agent included)
 	}
 	if c.Has(RoleTenantAdmin) {
 		g.Allowed, g.All = true, true
-		return g, nil
+		return g, true
 	}
 	if c.Has(RoleTenantAuditor) && readOnly {
 		g.Allowed, g.All = true, true
-		return g, nil
+		return g, true
 	}
-	return a.rules(ctx, c, perm, g)
+	return g, false
 }
 
 // rules is the app's own permission rules without the platform's overrides (administrator, auditor, agent): the tenant's roles
 // once it manages its own, the platform roles of Defaults while it does not.
 func (a Authz) rules(ctx context.Context, c Caller, perm string, g Grant) (Grant, error) {
+	var acc *AccessResult
 	if a.Perms != nil {
-		acc, err := a.Perms.Access(ctx, c.Tenant, c.User, c.Roles, a.Point(perm), "")
+		r, err := a.Perms.Access(ctx, c.Tenant, c.User, c.Roles, a.Point(perm), "")
 		if err != nil {
 			return g, err
 		}
+		acc = &r
+	}
+	return a.apply(c, perm, acc, g), nil
+}
+
+// apply is rules on the platform's answer for the point (nil: no permission model wired).
+func (a Authz) apply(c Caller, perm string, acc *AccessResult, g Grant) Grant {
+	if acc != nil {
 		if acc.Managed {
-			return Grant{Allowed: acc.Allowed, All: acc.All, Self: acc.Self, Units: acc.Units, Subject: c.User}, nil
+			return Grant{Allowed: acc.Allowed, All: acc.All, Self: acc.Self, Units: acc.Units, Subject: c.User}
 		}
 		if acc.Personal && acc.Allowed { // basic mode: the person's own grant (ADR-0121), widened below by the platform roles
 			g.Allowed, g.Self, g.Units = true, acc.Self, acc.Units
@@ -132,7 +213,7 @@ func (a Authz) rules(ctx context.Context, c Caller, perm string, g Grant) (Grant
 		}
 		g.Self = true
 	}
-	return g, nil
+	return g
 }
 
 // SelfSuffix marks a role of Authz.Defaults that holds a point over the caller's own records only.

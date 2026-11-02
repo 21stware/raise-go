@@ -299,6 +299,20 @@ type AppOrgPlacement struct {
 	Units []string `json:"units"`
 }
 
+// 一个值的来源
+type AppIntentField struct {
+	// 名字还对得上的其他记录，卡片里可以换
+	Candidates []AppIntentCandidate `json:"candidates,omitempty"`
+	// 那条记录的标题
+	Label string `json:"label,omitempty"`
+	// 说明
+	Note string `json:"note,omitempty"`
+	// 记录字段的记录（k3:// 引用），用来画成标签
+	Ref string `json:"ref,omitempty"`
+	// stated 是话里说了，inferred 是推断的
+	Source string `json:"source"`
+}
+
 // 一个可被其他应用占用的治疗室或设备
 type AppPeerHoldableItem struct {
 	// 类别名称
@@ -319,6 +333,24 @@ type AppDraftCandidate struct {
 	Label string `json:"label"`
 	// 值，类型随字段
 	Value map[string]any `json:"value"`
+}
+
+// 一个导入批次，同管理后台的批次列表
+type AppImportBatch struct {
+	App       string    `json:"app"`
+	CreatedAt time.Time `json:"createdAt"`
+	// 建这个批次的人
+	CreatedBy   string `json:"createdBy"`
+	CreatedName string `json:"createdName"`
+	// 写成的行里最早的业务时刻
+	FirstAt time.Time `json:"firstAt,omitempty"`
+	Id      string    `json:"id"`
+	Label   string    `json:"label"`
+	// 写成的行里最晚的业务时刻
+	LastAt     time.Time `json:"lastAt,omitempty"`
+	RowsFailed int       `json:"rowsFailed"`
+	RowsOk     int       `json:"rowsOk"`
+	UpdatedAt  time.Time `json:"updatedAt"`
 }
 
 // 一个未支付订单对权益的占用
@@ -614,6 +646,19 @@ type AppOrgMember struct {
 	Units []string `json:"units"`
 }
 
+// 一句话（可带图片）和它要填的操作
+type AppIntentRequest struct {
+	// 应用 id。省略就是本应用，写别的应用是 422
+	App string `json:"app,omitempty"`
+	// 图片（例如发票照片）
+	Attachments []AppIntentAttachment `json:"attachments,omitempty"`
+	Context     *AppIntentContext     `json:"context,omitempty"`
+	// 本应用清单里的操作名
+	Op string `json:"op"`
+	// 这句话。没有图片时不能为空
+	Text string `json:"text,omitempty"`
+}
+
 // 一张图片
 type AppModelImage struct {
 	// 图片字节的 base64
@@ -873,6 +918,13 @@ type AppDraftExecuteResult struct {
 	Summary string `json:"summary,omitempty"`
 }
 
+// 一段导入的结果
+type AppImportReport struct {
+	Items []AppImportReportItem `json:"items"`
+	// 批次说明，最多 200 字；省略时保留原来的
+	Label string `json:"label,omitempty"`
+}
+
 // 一种改动。只写一项：replace、append、title、data、board 之一
 type AppRealtimeEditBody struct {
 	// 追加到末尾的 ProseMirror 块
@@ -987,6 +1039,26 @@ type AppPaymentRefund struct {
 	Status string `json:"status"`
 	// 租户
 	Tenant string `json:"tenant"`
+}
+
+// 一行在应用里的结果
+type AppImportReportItem struct {
+	// 业务时刻：这件事发生的时间
+	BusinessAt time.Time `json:"businessAt"`
+	// 应用对这一行原文的摘要（同一行再报时必须一样），最多 128 字符
+	Digest string `json:"digest"`
+	// failed：原因，导入的人读的，最多 500 字
+	Error string `json:"error,omitempty"`
+	// 旧系统里这一行的键，批内唯一，最多 120 字符
+	Key string `json:"key"`
+	// 这一行是什么（应用自己的种类）
+	Kind string `json:"kind"`
+	// ok：这一行写成的主记录 id
+	RecordId string `json:"recordId,omitempty"`
+	// ok：主记录的 k3:// 引用（本应用的）；有它就记一条来源
+	Ref string `json:"ref,omitempty"`
+	// 写成了，或失败了
+	Status string `json:"status"`
 }
 
 // 一页客户和总数
@@ -1350,6 +1422,16 @@ type AppResourceGrant struct {
 	Note string `json:"note,omitempty"`
 	// 对象 id；everyone 为空字符串
 	Principal string `json:"principal"`
+}
+
+// 名字对得上的一条记录
+type AppIntentCandidate struct {
+	// 标题
+	Label string `json:"label"`
+	// k3:// 引用
+	Ref string `json:"ref"`
+	// 操作要的值（记录的 id）
+	Value string `json:"value"`
 }
 
 // 哪个种类的连接
@@ -2440,6 +2522,12 @@ type AppGranterRefund struct {
 	Ref string `json:"ref,omitempty"`
 }
 
+// 读出来但不符合操作的一个值
+type AppIntentRejection struct {
+	Field  string `json:"field"`
+	Reason string `json:"reason"`
+}
+
 // 谁写了一条记录
 type AppDraftProvenance struct {
 	App      string    `json:"app"`
@@ -2488,6 +2576,27 @@ type AppEntitlementTransferRequest struct {
 	Reason string `json:"reason,omitempty"`
 	// 接收的客户 id
 	To string `json:"to"`
+}
+
+// 输入建议：读出来的输入、每个值的来源、还缺的必填项
+type AppIntentResult struct {
+	// rules 是只用规则（不计费），model 是调了模型
+	By string `json:"by"`
+	// 每个值从哪来，按字段名
+	Fields map[string]AppIntentField `json:"fields"`
+	// 操作的输入（按操作的输入结构校验过）
+	Input map[string]any `json:"input"`
+	// 还没有值的必填项，确认卡片会问
+	Missing []string `json:"missing"`
+	// 读出来但不符合操作的值（名字对不上记录、选项里没有）
+	Rejected []AppIntentRejection `json:"rejected,omitempty"`
+	Usage    AppIntentUsage       `json:"usage"`
+}
+
+// 这次解析花了多少：计费的 micros，和点数（1 点 = 10,000 micros，两位小数；花了就至少 0.01）
+type AppIntentUsage struct {
+	Micros int     `json:"micros"`
+	Points float64 `json:"points"`
 }
 
 // 进度里的一行
@@ -2558,6 +2667,26 @@ type AppSiteUsageRequest struct {
 	To time.Time `json:"to,omitempty"`
 }
 
+// 随这句话带的一张图片
+type AppIntentAttachment struct {
+	// 图片字节的 base64，或 data: URL。最大 5 MiB
+	Data string `json:"data"`
+	// image/png、image/jpeg、image/webp 或 image/gif；data 是 data: URL 时可省略
+	Mime string `json:"mime,omitempty"`
+	// 文件名
+	Name string `json:"name,omitempty"`
+}
+
+// 页面知道的：页面所在的记录、当前人员的时间与时区
+type AppIntentContext struct {
+	// 当前时间（RFC 3339），省略用平台的时钟
+	Now time.Time `json:"now,omitempty"`
+	// 页面所在记录的 k3:// 引用
+	Refs []string `json:"refs,omitempty"`
+	// IANA 时区名，省略是 Asia/Shanghai
+	Tz string `json:"tz,omitempty"`
+}
+
 // 预留：核销的字段加保留多久
 type AppEntitlementReserveRequest struct {
 	// 默认调用者
@@ -2580,6 +2709,22 @@ type AppEntitlementReserveRequest struct {
 	TtlSeconds int `json:"ttlSeconds,omitempty"`
 	// 门店
 	Where string `json:"where,omitempty"`
+}
+
+type AppAccessPoint struct {
+	// 权限点，以 app.{本应用 id}. 开头
+	Point string `json:"point"`
+	// 对象类型 id，可省略
+	Type string `json:"type,omitempty"`
+}
+
+type AppAccessPointsRequest struct {
+	Points []AppAccessPoint `json:"points"`
+}
+
+type AppAccessPointsResult struct {
+	// 与 points 同序，每项同 GET /access 的回答
+	Results []AppAccess `json:"results"`
 }
 
 type AppAccessReconciled struct {

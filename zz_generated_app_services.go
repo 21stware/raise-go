@@ -36,6 +36,28 @@ func (s *AppAccessService) Check(ctx context.Context, p *AppAccessCheckParams) (
 	return &out, nil
 }
 
+// 当前人员对本应用多个权限点能做什么（一次问完）
+// 需要范围 `app.access:read`。English: what the caller may do with several permissions of this app, in one call.
+//
+// `points` 是 1 到 100 个 `{point, type}`，规则同 `GET /access`：每个 `point` 都必须以 `app.{本应用 id}.` 开头，有一个不是就整次 403 `forbidden`（什么都不问）；个数为 0 或超过 100 是 422。`results[i]` 就是 `GET /access` 对 `points[i]` 的回答（同一个求值器、同样不是 camelCase 的字段名；平台没有接通权限求值时每一项都是 `{"managed": false}`）。平台不记住答案：收回的权限在下一次调用就没有了。English: 1 to 100 `{point, type}`, each under the `app.{app id}.` prefix (one that is not refuses the whole call with 403 before anything is asked; none or over 100 is 422); `results[i]` is exactly GET /access's answer for `points[i]`, nothing cached.
+func (s *AppAccessService) CheckMany(ctx context.Context, body *AppAccessPointsRequest, opts ...CallOption) (*AppAccessPointsResult, error) {
+	path := "/access/points"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppAccessPointsResult
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // 当前人员所在的部门
 // 需要范围 `app.access:read`。English: the department of the caller. 平台没有接通权限求值时是 503 `unavailable`。
 func (s *AppAccessService) Unit(ctx context.Context) (*AppUnit, error) {
@@ -1424,6 +1446,33 @@ func (s *AppEventsService) Emit(ctx context.Context, body *AppEmitRequest, opts 
 	return &out, nil
 }
 
+// AppImportsService is the imports resource of the app API.
+type AppImportsService struct{ c *Client }
+
+// 登记本应用导入的一段历史数据（批次、每一行的结果、记录的来源）
+// 需要范围 `app.imports:write`。English: records one chunk of a history import the app ran in its own process: the batch, what became of each row, and the provenance of each record a row wrote.
+//
+// 应用用自己的命令、在自己的数据库里按业务时刻写入旧系统的历史（ADR-0081），每写完一段就把结果报到这里。平台把批次与行记在跨应用的批次列表里（管理后台的「导入批次」），给每条写成的记录记一条来源（`via` 为 `import`，记录的「来源」与 `GET /provenance` 读到），每段写一条审计。平台不收行的数据：`digest` 是应用对这一行原文的摘要，同一批里同一个外部键再报一次，摘要必须一样。
+//
+// 只收页面会话，且必须是企业管理员（`tenant.admin`）本人：应用自己的令牌是 403 person_required，其他人是 403。`batch` 只能用字母、数字和 `. _ : -`，最多 80 个字符。一次 1 到 500 行，外部键在一次提交里不能重复；`ok` 的行要有 `recordId`，`ref` 必须是本应用的记录（`k3://{本应用 id}/…`），`failed` 的行要有 `error`、不能有记录；不合规是 422，整段不收。已经记为 `ok` 的外部键再报成另一行（摘要不同，或报成 `failed`）是 409 `conflict`，整段不收。正文最多 1 MiB。回答是批次现在的样子。平台没有数据库时是 503。
+func (s *AppImportsService) Report(ctx context.Context, batch string, body *AppImportReport, opts ...CallOption) (*AppImportBatch, error) {
+	path := "/imports/" + url.PathEscape(batch) + "/items"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppImportBatch
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // AppInstallationsService is the installations resource of the app API.
 type AppInstallationsService struct{ c *Client }
 
@@ -1435,6 +1484,31 @@ func (s *AppInstallationsService) List(ctx context.Context) (*AppInstallations, 
 	var ro requestOptions
 	var out AppInstallations
 	if err := s.c.doApp(ctx, "GET", path, q, nil, &out, ro); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// AppIntentService is the intent resource of the app API.
+type AppIntentService struct{ c *Client }
+
+// 把一句话解析成本应用某个操作的输入建议
+// 需要范围 `app.intent:parse`。English: turns one sentence of the page session's person (and up to 3 photos) into a proposal for the input of one of this app's ops, the same answer an app in the platform's process gets at `/api/intent/parse` on its own origin. Nothing is submitted: the person confirms the proposal with the op itself.
+//
+// 只收页面会话：应用自己的令牌是 403，正文里 code 为 person_required（解析按人进行：他能用的操作、他看得到的记录）。`app` 可省略，省略时就是本应用；写了别的应用是 422。`op` 必须是本应用清单里的操作：当前人员看不到本应用是 404（code 为 app_not_available），操作不能解析是 422（code 为 op_not_parsable）。规则能读出的（日期、时间、金额、手机号、数量、页面所在的记录）不调模型、不计费；其余的经企业的服务模型（场景 intent）读出，按用量计点，`usage` 说明这次花了多少。`text` 最多 2000 个字符；`attachments` 最多 3 张图片（png、jpeg、webp、gif，每张最大 5 MiB，base64 或 data: URL），整个请求约 21 MiB；`context.refs` 最多 20 个 `k3://` 引用。每人每分钟最多 30 次，超过是 429。Idempotency-Key 收下但不保存回答：解析不写任何东西，重试就是再解析一次（再计一次用量）。企业没有开放模型时只用规则读（`by` 为 rules）。平台没有接上解析器时是 503（code 为 unavailable 或 intent_off）；模型这次读不出来是 502，code 为 intent_failed（页面改让人填表）。这几个 code 不在 ErrorCode 里，按状态和这个字段判断。
+func (s *AppIntentService) Parse(ctx context.Context, body *AppIntentRequest, opts ...CallOption) (*AppIntentResult, error) {
+	path := "/intent/parse"
+	var q url.Values
+	var ro requestOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+	var out AppIntentResult
+	var reqBody any
+	if body != nil {
+		reqBody = body
+	}
+	if err := s.c.doApp(ctx, "POST", path, q, reqBody, &out, ro); err != nil {
 		return nil, err
 	}
 	return &out, nil

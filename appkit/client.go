@@ -283,6 +283,41 @@ func (a access) Access(ctx context.Context, tenant, subject string, platformRole
 	return acc, nil
 }
 
+var _ AccessBatcher = access{}
+
+// AccessPointsMax is the most points POST /app/v1/access/points answers in one call; AccessMany sends more in several.
+const AccessPointsMax = 100
+
+func (a access) AccessMany(ctx context.Context, tenant, subject string, platformRoles []string, points []AccessPoint) ([]AccessResult, error) {
+	c := Caller{Tenant: tenant, User: subject, Roles: platformRoles}
+	out := make([]AccessResult, 0, len(points))
+	for len(points) > 0 {
+		chunk := points[:min(len(points), AccessPointsMax)]
+		points = points[len(chunk):]
+		rep, err := a.cl.do(ctx, c, "POST", "/app/v1/access/points", nil, map[string]any{"points": chunk})
+		if err != nil {
+			return nil, err
+		}
+		if err := mapStatus(rep.status, rep.hdr, rep.body); err != nil {
+			return nil, err
+		}
+		if err := refuseOtherTenant(rep.hdr, tenant); err != nil {
+			return nil, err
+		}
+		var res struct {
+			Results []AccessResult `json:"results"`
+		}
+		if err := unmarshalJSON(rep.body, &res); err != nil {
+			return nil, err
+		}
+		if len(res.Results) != len(chunk) {
+			return nil, fmt.Errorf("appkit: access/points answered %d results for %d points", len(res.Results), len(chunk))
+		}
+		out = append(out, res.Results...)
+	}
+	return out, nil
+}
+
 func (a access) UnitOf(ctx context.Context, tenant, subject string) (string, error) {
 	c := Caller{Tenant: tenant, User: subject}
 	var out struct {

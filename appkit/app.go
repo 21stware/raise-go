@@ -79,10 +79,16 @@ type Deps struct {
 	OptionsAPI OptionStore
 	// Model is the tenant's service model (Client.Model); nil when it is not wired.
 	Model Model
+	// IntentAPI hands a page's sentence to the platform's parser (Client.Intent().Forward: POST /app/v1/intent/parse) and answers its
+	// status and body as they are; MountIntent serves it. Nil: the parse answers 503.
+	IntentAPI func(ctx context.Context, c Caller, body []byte) (int, []byte, error)
 	// Pay is the payment service (Client.Pay). Nil when it is not wired.
 	Pay Pay
 	// Approvals is the approval service (Client.Approvals); the app's kinds are its manifest's approvals. Nil when it is not wired.
 	Approvals Approvals
+	// Imports reports the app's history imports to the platform (Client.Imports): the cross-app batches and the records' provenance.
+	// Nil when it is not wired.
+	Imports Imports
 	// EntitlementAPI is the entitlement service (Client.Entitlements); EntitlementClient() answers it. Nil when it is not wired.
 	EntitlementAPI EntitlementClient
 	// Vault is the platform's secret store (Client.Vault): subjects are the app's own <kind>:<id>. Nil when it is not wired.

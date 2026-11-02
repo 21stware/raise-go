@@ -34,6 +34,11 @@ type SiteActionSpec struct {
 	MaxBody       int    `json:"maxBody,omitempty"`       // bytes of a POST body (0: 4 KiB; at most 64 KiB)
 	// LooseBody accepts a POST whose Content-Type is not application/json; the body must still be JSON.
 	LooseBody bool `json:"looseBody,omitempty"`
+	// OpenID asks for the visitor's openid of the tenant's WeChat official account (the request's openId and appId): an action that
+	// pays by WeChat JSAPI. Referrer asks who sent the visitor (the request's referrer, from the installed apps' providers.referrer,
+	// waited for up to 300 ms): an action that records a distribution source. Both need a visitor.
+	OpenID   bool `json:"openid,omitempty"`
+	Referrer bool `json:"referrer,omitempty"`
 }
 
 // DefaultSiteActionSpec guards a declared site action whose manifest gives no spec: a POST of JSON, no visitor, 30 requests per
@@ -84,6 +89,9 @@ func (m *Manifest) validateSiteActions(add func(string, ...any)) {
 		case SiteVisitorNone, SiteVisitorMake, SiteVisitorIdentified:
 		default:
 			add("%s.visitor %q: empty, make or identified", at, s.Visitor)
+		}
+		if (s.OpenID || s.Referrer) && s.Visitor == SiteVisitorNone {
+			add("%s: openid and referrer need a visitor (make or identified)", at)
 		}
 		if s.PerAddress < 0 || s.PerVisitor < 0 || s.PerVisitorDay < 0 || s.PerSite < 0 || s.MaxBody < 0 {
 			add("%s: the limits are not negative", at)
