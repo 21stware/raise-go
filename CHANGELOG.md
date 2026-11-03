@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.7 — 2026-11-03
+
+- kit: raise-design 0.2.3 (a Sheet in a hosted app's frame starts under the workspace's shared row), and its dependents republished: raise-app-kit 0.4.1, raise-doc-kit 0.3.1, raise-voucher-desk 0.2.6, raise-pages-ui 0.2.1.
+- `appkit`: a hosted app calls the platform back for a test enterprise with its test key (ADR-0130 P14 note, T16). The platform refuses a live key in a test enterprise (`wrong_environment`), so an op that called back from there failed. The platform's runtime now gives every hosted process its test key next to its live key (`K3_APP_TEST_CLIENT_ID` / `K3_APP_TEST_CLIENT_SECRET`), and `Tokens` asks a test enterprise's tenant token with it, any other tenant's with the live key. `Tokens.TestClientID` / `TestClientSecret` set it; both empty, `Tokens` reads the two variables, so an app that builds `Tokens` from `K3_APP_CLIENT_ID` / `_SECRET` needs no change. The tenant is a test enterprise when the platform says so: `k3.AssertionClaims.Env` (claim `env`, `k3.EnvTest` / `k3.EnvLive`) of an op's or any other platform call's assertion, and `AppClaims.Env` of a page session, both read by `Inbound`; for the app's own work with no request behind it, what an earlier request said, or the live key's `wrong_environment`, after which the test key is used and kept for that tenant. Without a test key every tenant gets the live key, as before. The `wrong_environment` rule itself is unchanged: a test key still reaches only its own developer's test enterprises.
+- `k3`: `Signer.TenantEnv` (the platform's: it fills in `AssertionClaims.Env` of every assertion that names a tenant and no environment) and `Signer.EnvOf`.
+
 ## 0.7.6 — 2026-11-02
 
 - `k3`: `Manifest.Validate` refuses a manifest that declares `services` or `events.receives` without an `opsApi`: the platform delivers every service run and data event to the origin of the ops address, so such a version was accepted and then failed every delivery ("the App has no server address to deliver to", raise-growth journey 0.1.0). Write it in the release manifest as `appkit.OpsAPIFor(m.Web.URL, id)` (raise-growth, raise-rehab, raise-knowledge and raise-distribution already do). A test that validates the manifest your code builds, before the release adds the address, sets it too.

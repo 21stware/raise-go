@@ -111,7 +111,18 @@ type AssertionClaims struct {
 	// ViaPolicy, ViaConfirm), for the App's audit text. It is not Via, which names the kind of the platform's call. Empty: the person's
 	// own click.
 	Origin string `json:"origin,omitempty"`
+	// Env is Tenant's environment on the open platform: EnvTest for a test enterprise, EnvLive for a real organisation (the platform's
+	// signer fills it in, Signer.TenantEnv). An App that calls the platform back for the tenant takes the app key of that environment
+	// (raise-go appkit.Tokens: K3_APP_TEST_CLIENT_ID for a test enterprise), since the platform refuses a live key in a test enterprise
+	// and a test key in a real one (wrong_environment). Empty: a platform older than the claim; the App uses its live key.
+	Env string `json:"env,omitempty"`
 }
+
+// The environments a tenant has on the open platform (AssertionClaims.Env): the words an app key's environment is named with (opencred).
+const (
+	EnvLive = "live"
+	EnvTest = "test"
+)
 
 // AssertionTTL is deliberately short: an assertion is consumed immediately by the Draft run.
 const AssertionTTL = 2 * time.Minute

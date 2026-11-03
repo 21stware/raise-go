@@ -76,6 +76,10 @@ type Signer struct {
 	// Previous are public keys that no longer sign but still verify (a rotation's overlap: new signs, old verifies, ADR-0130 §2.3).
 	// Their kids must differ from Kid.
 	Previous []JWK
+	// TenantEnv, when set, names a tenant's environment on the open platform (EnvTest for a test enterprise, EnvLive otherwise): Sign
+	// fills in the Env of every assertion (AssertionClaims) that names a tenant and no environment, so the App it reaches calls the
+	// platform back with the app key of that environment (ADR-0130 P14 note, T16).
+	TenantEnv func(tenant string) string
 }
 
 // JWKS is every key a token of this signer may carry: the current one first, then the previous ones still accepted.
@@ -107,13 +111,42 @@ func (s *Signer) PublicJWK() JWK {
 // Sign produces a compact JWS with the given typ header.
 func (s *Signer) Sign(typ string, claims any) (string, error) {
 	h, _ := json.Marshal(map[string]string{"alg": "EdDSA", "typ": typ, "kid": s.Kid})
-	p, err := json.Marshal(claims)
+	p, err := json.Marshal(s.withEnv(claims))
 	if err != nil {
 		return "", err
 	}
 	in := b64.EncodeToString(h) + "." + b64.EncodeToString(p)
 	sig := ed25519.Sign(s.Key, []byte(in))
 	return in + "." + b64.EncodeToString(sig), nil
+}
+
+// withEnv is claims with its tenant's environment (TenantEnv) when it is an assertion that names a tenant and no environment.
+func (s *Signer) withEnv(claims any) any {
+	if s.TenantEnv == nil {
+		return claims
+	}
+	switch c := claims.(type) {
+	case AssertionClaims:
+		if c.Env == "" && c.Tenant != "" {
+			c.Env = s.TenantEnv(c.Tenant)
+		}
+		return c
+	case *AssertionClaims:
+		if c != nil && c.Env == "" && c.Tenant != "" {
+			cp := *c
+			cp.Env = s.TenantEnv(c.Tenant)
+			return &cp
+		}
+	}
+	return claims
+}
+
+// EnvOf is the tenant's environment as TenantEnv names it ("" without one): what a token the platform signs for the tenant says.
+func (s *Signer) EnvOf(tenant string) string {
+	if s == nil || s.TenantEnv == nil || tenant == "" {
+		return ""
+	}
+	return s.TenantEnv(tenant)
 }
 
 var b64 = base64.RawURLEncoding

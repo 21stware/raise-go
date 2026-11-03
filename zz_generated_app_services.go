@@ -1520,7 +1520,7 @@ func (s *AppImportsService) Report(ctx context.Context, batch string, body *AppI
 type AppInstallationsService struct{ c *Client }
 
 // 安装了本应用且已开启的企业
-// 需要范围 `app.installations:read`。只收应用自己的令牌；页面会话是 403 `forbidden`。English: the tenants that have the app installed and switched on (the app's own calls only).
+// 需要范围 `app.installations:read`。只收应用自己的令牌；页面会话是 403 `forbidden`。测试凭证的令牌列出本开发者组织名下装了本应用的测试企业；正式凭证的令牌只列真实组织。English: the tenants that have the app installed and switched on (the app's own calls only); a test credential's token lists the organisation's test enterprises, a live one real organisations only.
 func (s *AppInstallationsService) List(ctx context.Context) (*AppInstallations, error) {
 	path := "/installations"
 	var q url.Values

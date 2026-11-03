@@ -55,10 +55,12 @@ type SchemaOwner interface {
 // side is internal/appevents): POST /k3/events/{kind} with {"tenant", "subject"}, as the platform (via event), at least once.
 const PathEventFmt = "/k3/events/"
 
-// DataEventCall is the body of a data event.
+// DataEventCall is the body of a data event. Test is set on a developer's `k3 trigger` delivery in a test enterprise: the platform
+// changed nothing (the tenant, site or customer is still there, the app still installed).
 type DataEventCall struct {
 	Tenant  string `json:"tenant"`
 	Subject string `json:"subject"`
+	Test    bool   `json:"test,omitempty"`
 }
 
 // serveEvents answers the data events a's manifest declares it receives (events.receives).

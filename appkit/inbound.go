@@ -24,6 +24,9 @@ type AppClaims struct {
 	Name string `json:"name,omitempty"`
 	// Agent names the agent that acts for Sub (set only by the agent read endpoint). Its calls are read-only.
 	Agent string `json:"agent,omitempty"`
+	// Env is the tenant's environment on the open platform (k3.EnvTest for a test enterprise): Tokens takes the app key of that
+	// environment for the app's own calls while it serves the request. Empty: a platform older than the claim.
+	Env string `json:"env,omitempty"`
 }
 
 // Inbound is the door of an app that runs in a process of its own (ADR-0066 §5.1, ADR-0130 §2.3). The app's handlers read the caller
@@ -44,6 +47,9 @@ func Inbound(keys k3.KeySource, app string, next http.Handler) http.Handler {
 			r.Header.Del(h)
 		}
 		ctx := withTrace(r.Context(), r.Header)
+		if a := r.Header.Get(k3.HeaderAssertion); a != "" { // an op or another call of the platform's: the tenant's environment (Tokens)
+			ctx = assertedEnv(ctx, keys, app, a)
+		}
 		if tok := r.Header.Get(HeaderToken); tok != "" {
 			var c AppClaims
 			if err := k3.Verify(ctx, tok, TypAppToken, keys, &c); err != nil || !c.Aud.Contains(app) || c.Tenant == "" || c.Sub == "" ||
@@ -51,6 +57,7 @@ func Inbound(keys k3.KeySource, app string, next http.Handler) http.Handler {
 				http.Error(w, `{"error":"the App token is not valid"}`, http.StatusUnauthorized)
 				return
 			}
+			ctx = withTenantEnv(ctx, c.Tenant, c.Env)
 			r.Header.Set(HeaderTenant, c.Tenant)
 			r.Header.Set(HeaderUser, c.Sub)
 			r.Header.Set(HeaderRoles, strings.Join(c.Roles, ","))
@@ -75,6 +82,17 @@ func Inbound(keys k3.KeySource, app string, next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// assertedEnv puts on ctx the tenant's environment the platform's assertion names (k3.AssertionClaims.Env), when the assertion is
+// the platform's and for this app: Tokens takes the app key of that environment for the app's calls back. Nothing else about the
+// request is decided here (the ops handler and verifyCall check the rest).
+func assertedEnv(ctx context.Context, keys k3.KeySource, app, tok string) context.Context {
+	var c k3.AssertionClaims
+	if err := k3.Verify(ctx, tok, k3.TypAssertion, keys, &c); err != nil || !c.Aud.Contains(app) || c.Tenant == "" || c.Env == "" {
+		return ctx
+	}
+	return withTenantEnv(ctx, c.Tenant, c.Env)
 }
 
 // platformVias are the assertions of the platform's calls Inbound accepts (ops are the ops handler's).

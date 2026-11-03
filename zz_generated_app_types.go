@@ -1539,6 +1539,8 @@ type AppDataEventDelivery struct {
 	Subject string `json:"subject"`
 	// 租户 id，与断言里的租户相同
 	Tenant string `json:"tenant"`
+	// true：开发者在测试企业里用 k3 trigger 发的测试投递，平台什么都没删、没合并、没卸载；真实事件不带这个字段
+	Test bool `json:"test,omitempty"`
 }
 
 // 平台投递一次服务运行的正文；input 的形状随触发器而定
